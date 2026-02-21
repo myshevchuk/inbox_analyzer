@@ -128,6 +128,71 @@ def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = Non
     return covered
 
 
+def build_rule_index(config: dict) -> list[tuple[str, set[str], set[str]]]:
+    """
+    Build a lookup index of existing rules for related-rule detection.
+    Returns a list of (folder, from_patterns, to_patterns) — one entry per rule
+    that has a move_to folder and at least one condition pattern.
+    """
+    index = []
+
+    def _collect(cond: dict, froms: set, tos: set):
+        for key, value in cond.items():
+            k = key.upper()
+            if k == "FROM":
+                froms.add(value.lower())
+            elif k == "TO":
+                tos.add(value.lower())
+            elif k in ("ANY", "ALL"):
+                for sub in value:
+                    if isinstance(sub, dict):
+                        _collect(sub, froms, tos)
+
+    for rule in config.get("rules", []):
+        folder = rule.get("move_to", "")
+        if not folder:
+            continue
+        froms: set[str] = set()
+        tos: set[str] = set()
+        cond = rule.get("condition", {})
+        if cond:
+            _collect(cond, froms, tos)
+        if froms or tos:
+            index.append((folder, froms, tos))
+
+    return index
+
+
+def find_related_rules(
+    group: SenderGroup,
+    rule_index: list[tuple[str, set[str], set[str]]],
+) -> list[str]:
+    """
+    Return folder names of existing rules that appear related to this group.
+    Matches by checking whether the sender domain or list_id domain overlaps
+    (as a substring) with any existing FROM or TO pattern.
+    """
+    candidates: set[str] = set()
+    if "@" in group.from_addr:
+        candidates.add(group.from_addr.split("@")[-1].lower())
+    if group.list_id:
+        candidates.add(group.list_id.lower())
+
+    related = []
+    seen: set[str] = set()
+    for folder, from_pats, to_pats in rule_index:
+        if folder in seen:
+            continue
+        all_pats = from_pats | to_pats
+        for domain in candidates:
+            if any(domain in pat or pat in domain for pat in all_pats):
+                related.append(folder)
+                seen.add(folder)
+                break
+
+    return related
+
+
 def get_ignored_to_patterns(config: dict, ignore_folders: set[str]) -> set[str]:
     """
     Return TO patterns that belong exclusively to ignored-folder rules.
@@ -498,6 +563,7 @@ def color(text: str, *styles: str) -> str:
 def interactive_session(
     groups: list[SenderGroup],
     existing_folders: set[str],
+    rule_index: list[tuple[str, set[str], set[str]]],
     output_file: Optional[str] = None,
 ):
     """
@@ -542,6 +608,10 @@ def interactive_session(
         print(f"\n  {color('Suggested rule:', 'green')}")
         for line in suggestion.split("\n"):
             print(f"    {line}")
+        related = find_related_rules(group, rule_index)
+        if related:
+            for folder in related:
+                print(color(f"  \u21b3 Related existing rule: {folder}", "yellow"))
 
         while True:
             choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
@@ -750,7 +820,8 @@ Examples:
         sys.exit(0)
 
     # Interactive rule suggestion
-    interactive_session(groups, existing_folders, output_file=args.output)
+    rule_index = build_rule_index(config)
+    interactive_session(groups, existing_folders, rule_index, output_file=args.output)
 
 
 if __name__ == "__main__":
