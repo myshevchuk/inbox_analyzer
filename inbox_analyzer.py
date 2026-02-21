@@ -65,13 +65,14 @@ class MessageInfo:
 
 @dataclass
 class SenderGroup:
-    """A cluster of messages sharing the same sender address."""
-    from_addr: str
-    from_display: str
+    """A cluster of messages sharing the same mailing list or sender address."""
+    from_addr: str          # representative sender (most frequent, or only one)
+    from_display: str       # display name of representative sender
     count: int
     sample_subjects: list[str]
     list_id: Optional[str] = None
     to_addrs: set[str] = field(default_factory=set)
+    from_addrs: set[str] = field(default_factory=set)  # all senders in group
 
 
 # ---------------------------------------------------------------------------
@@ -359,14 +360,18 @@ def group_uncovered_messages(
     uncovered = [m for m in messages if not is_message_covered(m, covered)]
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
-    # Group by sender address
+    # Group by list_id first (for mailing lists), then by sender address
+    by_list_id: dict[str, list[MessageInfo]] = defaultdict(list)
     by_sender: dict[str, list[MessageInfo]] = defaultdict(list)
     for m in uncovered:
-        by_sender[m.from_addr].append(m)
+        if m.list_id:
+            by_list_id[m.list_id].append(m)
+        else:
+            by_sender[m.from_addr].append(m)
 
     groups = []
-    for addr, msgs in by_sender.items():
-        subjects = list({m.subject for m in msgs})[:5]  # up to 5 unique subjects
+
+    def _build_to_addrs(msgs: list[MessageInfo]) -> set[str]:
         to_addrs = set()
         for m in msgs:
             to_addrs.update(m.to_addrs)
@@ -375,15 +380,37 @@ def group_uncovered_messages(
                 t for t in to_addrs
                 if not any(pat in t.lower() for pat in ignore_to_patterns)
             }
-        list_ids = {m.list_id for m in msgs if m.list_id}
+        return to_addrs
+
+    for list_id, msgs in by_list_id.items():
+        subjects = list({m.subject for m in msgs})[:5]
+        from_addrs = {m.from_addr for m in msgs}
+        # Pick the most frequent sender as the representative
+        rep_addr = max(from_addrs, key=lambda a: sum(1 for m in msgs if m.from_addr == a))
+        rep_display = next(m.from_display for m in msgs if m.from_addr == rep_addr)
+        groups.append(
+            SenderGroup(
+                from_addr=rep_addr,
+                from_display=rep_display,
+                count=len(msgs),
+                sample_subjects=subjects,
+                list_id=list_id,
+                to_addrs=_build_to_addrs(msgs),
+                from_addrs=from_addrs,
+            )
+        )
+
+    for addr, msgs in by_sender.items():
+        subjects = list({m.subject for m in msgs})[:5]
         groups.append(
             SenderGroup(
                 from_addr=addr,
                 from_display=msgs[0].from_display,
                 count=len(msgs),
                 sample_subjects=subjects,
-                list_id=next(iter(list_ids), None),
-                to_addrs=to_addrs,
+                list_id=None,
+                to_addrs=_build_to_addrs(msgs),
+                from_addrs={addr},
             )
         )
 
@@ -438,6 +465,10 @@ def suggest_rule(group: SenderGroup) -> str:
 
     if subaddress_to:
         lines.append(f"      TO: {subaddress_to}")
+    elif len(group.from_addrs) > 1:
+        lines.append(f"      ANY:")
+        for addr in sorted(group.from_addrs):
+            lines.append(f"        - FROM: {addr}")
     else:
         lines.append(f"      FROM: {group.from_addr}")
 

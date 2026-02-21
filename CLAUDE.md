@@ -15,7 +15,7 @@ The problem: despite extensive rules, many emails remain unsorted in the Inbox b
 1. Loads the mmuxer YAML config to extract existing FROM/TO/SUBJECT patterns and folder names
 2. Connects to IMAP via SSL, fetches only headers (From, To, Cc, Subject, Date, List-Id) from Inbox
 3. Filters out messages already covered by existing rules (heuristic substring matching)
-4. Groups uncovered messages by sender address, sorted by message count
+4. Groups uncovered messages by List-Id (for mailing lists) or sender address, sorted by message count
 5. Interactively walks the user through each group: accept suggested rule, change folder name, skip, or quit
 6. Outputs valid mmuxer YAML rule fragments ready to paste into the config
 
@@ -48,8 +48,8 @@ Example rule:
 
 - **Matching heuristic is loose**: `is_message_covered()` uses substring matching which may produce false negatives/positives. Could be improved to better replicate mmuxer's actual matching logic.
 - **Folder name suggestion is naive**: `suggest_folder_name()` extracts from display name or domain. It doesn't attempt to fit into the user's existing `Category.Service` taxonomy. Could use existing folder hierarchy to suggest categories.
-- **No List-Id based rules**: mmuxer may support List-Id matching but the current script only suggests FROM/TO rules. If mmuxer supports header matching, List-Id rules would be more robust for mailing lists.
-- **Single sender grouping only**: doesn't detect patterns like "all emails from *.example.com" or "all emails to user+tag@...".
+- **mmuxer has no List-Id condition**: mmuxer supports only FROM/TO/SUBJECT/BODY matchers — List-Id is not a supported condition type. List-Id is fetched and used internally to group mailing list messages that rotate sender addresses; when multiple senders are seen for the same list, the script generates an `ANY: [FROM: ...]` rule covering all of them.
+- **No domain-level grouping**: doesn't detect patterns like "all emails from *.example.com". Mailing lists with rotating sender addresses are handled via List-Id grouping.
 - **No persistent state**: running the script twice will re-suggest previously skipped groups. Could track dismissed senders.
 - **No dry-run against existing mailbox**: can't verify whether proposed rules would have caught the right messages without actually running mmuxer.
 - **Batch fetch could be optimized**: uses FETCH with sequence numbers rather than UID FETCH; could be more robust.

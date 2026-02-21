@@ -7,7 +7,7 @@ Analyzes your IMAP Inbox and interactively proposes [mmuxer](https://github.com/
 1. Loads your mmuxer `config.yaml` to extract existing rules and folder names
 2. Connects to IMAP and fetches message headers (From, To, Subject, Date) from Inbox
 3. Filters out messages already matched by existing rules
-4. Groups remaining messages by sender, sorted by frequency
+4. Groups remaining messages by sender (or by List-Id for mailing lists), sorted by frequency
 5. Walks you through each group interactively — accept, rename the folder, skip, or quit
 6. Outputs valid mmuxer YAML rule fragments ready to paste into your config
 
@@ -61,6 +61,8 @@ Use `--env-file` to point to a different path.
 ### Rule suggestion logic
 
 When a message was sent to a subaddress (`user+tag@domain`), the script suggests a `TO:` rule rather than `FROM:`, since the subaddress is typically a more stable identifier than the sender. Otherwise it falls back to `FROM:`.
+
+For mailing lists grouped by List-Id (which may rotate sender addresses), the script generates an `ANY: [FROM: ...]` rule covering all observed sender addresses in that list.
 
 **Exception:** if the subaddress pattern belongs to a rule targeting an ignored folder, the `TO:` suggestion is suppressed and `FROM:` is used instead — to avoid recreating a rule that was explicitly ignored.
 
