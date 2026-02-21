@@ -172,10 +172,10 @@ def is_message_covered(msg: MessageInfo, covered: dict) -> bool:
 # IMAP connection and header fetching
 # ---------------------------------------------------------------------------
 
-def connect_imap(server: str, user: str, password: str, port: int = 993) -> imaplib.IMAP4_SSL:
+def connect_imap(server: str, username: str, password: str, port: int = 993) -> imaplib.IMAP4_SSL:
     """Connect and authenticate to the IMAP server."""
     conn = imaplib.IMAP4_SSL(server, port)
-    conn.login(user, password)
+    conn.login(username, password)
     return conn
 
 
@@ -584,7 +584,7 @@ Examples:
         help="IMAP server port (default: 993)",
     )
     parser.add_argument(
-        "--user",
+        "--username",
         help="IMAP username/email (if not in mmuxer config)",
     )
     parser.add_argument(
@@ -642,7 +642,7 @@ Examples:
 
     if not server:
         server = input("IMAP server: ").strip()
-    if not user:
+    if not username:
         username = input("IMAP username: ").strip()
 
     password = args.password or env.get("password") or settings.get("password")
@@ -658,7 +658,7 @@ Examples:
     # Connect and fetch
     print(f"\nConnecting to {server}...")
     try:
-        conn = connect_imap(server, user, password, args.port)
+        conn = connect_imap(server, username, password, args.port)
     except Exception as e:
         print(f"Failed to connect: {e}", file=sys.stderr)
         sys.exit(1)
