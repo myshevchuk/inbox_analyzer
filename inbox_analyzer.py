@@ -408,10 +408,37 @@ def fetch_inbox_headers(
 # Analysis and grouping
 # ---------------------------------------------------------------------------
 
+def _coverage_reason(msg: MessageInfo, covered: dict) -> Optional[str]:
+    """Return a human-readable reason why a message is covered, or None if not covered."""
+    from_lower = msg.from_addr.lower()
+
+    if from_lower in covered["from"]:
+        return f"FROM exact '{from_lower}'"
+    for pattern in covered["from"]:
+        if pattern in from_lower or from_lower in pattern:
+            return f"FROM pattern '{pattern}'"
+
+    for to_addr in msg.to_addrs:
+        to_lower = to_addr.lower()
+        if to_lower in covered["to"]:
+            return f"TO exact '{to_lower}'"
+        for pattern in covered["to"]:
+            if pattern in to_lower:
+                return f"TO pattern '{pattern}'"
+
+    subj_lower = msg.subject.lower()
+    for pattern in covered["subject"]:
+        if pattern in subj_lower:
+            return f"SUBJECT pattern '{pattern}'"
+
+    return None
+
+
 def group_uncovered_messages(
     messages: list[MessageInfo],
     covered: dict,
     ignore_to_patterns: set[str] | None = None,
+    debug: bool = False,
 ) -> list[SenderGroup]:
     """
     Filter out already-covered messages, then group remaining by sender.
@@ -422,7 +449,16 @@ def group_uncovered_messages(
     suggest_rule uses the sender (FROM) rather than the TO subaddress,
     avoiding suggestions that duplicate already-existing ignored rules.
     """
-    uncovered = [m for m in messages if not is_message_covered(m, covered)]
+    uncovered = []
+    for m in messages:
+        reason = _coverage_reason(m, covered)
+        if reason:
+            if debug:
+                print(f"  [debug] covered:   {m.from_addr} | {reason}")
+        else:
+            if debug:
+                print(f"  [debug] uncovered: {m.from_addr}")
+            uncovered.append(m)
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
     # Group by list_id first (for mailing lists), then by sender address
@@ -431,8 +467,12 @@ def group_uncovered_messages(
     for m in uncovered:
         if m.list_id:
             by_list_id[m.list_id].append(m)
+            if debug:
+                print(f"  [debug] list group  '{m.list_id}': {m.from_addr}")
         else:
             by_sender[m.from_addr].append(m)
+            if debug:
+                print(f"  [debug] sender group '{m.from_addr}'")
 
     groups = []
 
@@ -757,6 +797,12 @@ Examples:
         help="Minimum messages from a sender to suggest a rule (default: 2)",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Print per-message coverage decisions and group assignments.",
+    )
+    parser.add_argument(
         "--output",
         help="Write accepted rules to this file instead of stdout",
     )
@@ -821,7 +867,7 @@ Examples:
         sys.exit(0)
 
     # Analyze
-    all_groups = group_uncovered_messages(messages, covered, ignore_to_patterns)
+    all_groups = group_uncovered_messages(messages, covered, ignore_to_patterns, debug=args.debug)
 
     # Filter by minimum count
     groups = [g for g in all_groups if g.count >= args.min_count]
