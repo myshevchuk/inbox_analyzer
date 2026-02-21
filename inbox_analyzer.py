@@ -20,7 +20,7 @@ import getpass
 import imaplib
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -72,7 +72,7 @@ class SenderGroup:
     count: int
     sample_subjects: list[str]
     list_id: Optional[str] = None
-    to_addrs: set = field(default_factory=set)
+    to_addrs: set[str] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------
