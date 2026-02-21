@@ -53,13 +53,33 @@ Use `--env-file` to point to a different path.
 | `--user` | from env/config | IMAP username |
 | `--password` | *(prompted)* | IMAP password |
 | `--folder` | `INBOX` | Folder to analyze |
+| `--ignore-folder` | *(none)* | Exclude rules targeting this folder from coverage check (repeatable) |
 | `--limit` | `500` | Max messages to fetch |
 | `--min-count` | `2` | Min messages from a sender to suggest a rule |
 | `--output` | stdout | Write accepted rules to a file |
 
-### Example
+### Rule suggestion logic
+
+When a message was sent to a subaddress (`user+tag@domain`), the script suggests a `TO:` rule rather than `FROM:`, since the subaddress is typically a more stable identifier than the sender. Otherwise it falls back to `FROM:`.
+
+**Exception:** if the subaddress pattern belongs to a rule targeting an ignored folder, the `TO:` suggestion is suppressed and `FROM:` is used instead — to avoid recreating a rule that was explicitly ignored.
+
+### Ignoring catch-all rules
+
+If broad catch-all rules hide senders that deserve more specific rules, exclude them from the coverage check with `--ignore-folder`:
+
+```sh
+inbox_analyzer.py --config ~/mmuxer/config.yaml --ignore-folder Misc
+```
+
+The folder passed via `--folder` is always ignored automatically.
+
+### Examples
 
 ```sh
 # Analyze last 1000 messages, save accepted rules to a file
 inbox_analyzer.py --config ~/mmuxer/config.yaml --limit 1000 --output new_rules.yaml
+
+# Analyze a non-inbox folder, also ignoring a catch-all
+inbox_analyzer.py --config ~/mmuxer/config.yaml --folder Newsletter --ignore-folder Misc
 ```

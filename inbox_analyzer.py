@@ -90,6 +90,10 @@ def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = Non
     Extract all FROM/TO/SUBJECT patterns from existing mmuxer rules.
     Returns a dict with keys 'from', 'to', 'subject' containing sets of
     lowercase patterns that are already handled.
+
+    Rules whose move_to folder is in ignore_folders are skipped entirely,
+    so their patterns do not count as coverage. This causes messages only
+    matched by those rules to surface as uncovered.
     """
     covered = {"from": set(), "to": set(), "subject": set()}
     rules = config.get("rules", [])
@@ -122,6 +126,20 @@ def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = Non
             _extract_from_condition(cond)
 
     return covered
+
+
+def get_ignored_to_patterns(config: dict, ignore_folders: set[str]) -> set[str]:
+    """
+    Return TO patterns that belong exclusively to ignored-folder rules.
+
+    These patterns are used to suppress TO-based rule suggestions: if a
+    message's TO address matches a pattern that was only in ignored rules,
+    suggest_rule falls back to a FROM-based rule instead of recreating the
+    rule that was already there.
+    """
+    all_covered = extract_covered_patterns(config)
+    limited = extract_covered_patterns(config, ignore_folders)
+    return all_covered["to"] - limited["to"]
 
 
 def extract_existing_folders(config: dict) -> set[str]:
@@ -331,11 +349,18 @@ def fetch_inbox_headers(
 # ---------------------------------------------------------------------------
 
 def group_uncovered_messages(
-    messages: list[MessageInfo], covered: dict
+    messages: list[MessageInfo],
+    covered: dict,
+    ignore_to_patterns: set[str] | None = None,
 ) -> list[SenderGroup]:
     """
     Filter out already-covered messages, then group remaining by sender.
     Returns sorted list of SenderGroup (highest count first).
+
+    ignore_to_patterns: TO address patterns from ignored-folder rules.
+    Matching TO addresses are stripped from each SenderGroup so that
+    suggest_rule uses the sender (FROM) rather than the TO subaddress,
+    avoiding suggestions that duplicate already-existing ignored rules.
     """
     uncovered = [m for m in messages if not is_message_covered(m, covered)]
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
@@ -351,6 +376,11 @@ def group_uncovered_messages(
         to_addrs = set()
         for m in msgs:
             to_addrs.update(m.to_addrs)
+        if ignore_to_patterns:
+            to_addrs = {
+                t for t in to_addrs
+                if not any(pat in t.lower() for pat in ignore_to_patterns)
+            }
         list_ids = {m.list_id for m in msgs if m.list_id}
         groups.append(
             SenderGroup(
@@ -661,6 +691,7 @@ Examples:
     # Extract existing rule patterns
     ignore_folders = set(args.ignore_folders or []) | {args.folder}
     covered = extract_covered_patterns(config, ignore_folders)
+    ignore_to_patterns = get_ignored_to_patterns(config, ignore_folders)
     existing_folders = extract_existing_folders(config)
     print(f"Loaded {sum(len(v) for v in covered.values())} patterns from existing rules.")
     print(f"Existing folders: {len(existing_folders)}")
@@ -686,13 +717,13 @@ Examples:
         sys.exit(0)
 
     # Analyze
-    groups = group_uncovered_messages(messages, covered)
+    groups = group_uncovered_messages(messages, covered, ignore_to_patterns)
 
     # Filter by minimum count
     groups = [g for g in groups if g.count >= args.min_count]
     if not groups:
         print(f"\nNo sender groups with {args.min_count}+ messages found.")
-        one_offs = [g for g in group_uncovered_messages(messages, covered) if g.count == 1]
+        one_offs = [g for g in group_uncovered_messages(messages, covered, ignore_to_patterns) if g.count == 1]
         if one_offs:
             print(f"({len(one_offs)} senders with only 1 message — use --min-count 1 to include them)")
         sys.exit(0)
