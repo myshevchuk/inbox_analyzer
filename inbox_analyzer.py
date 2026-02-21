@@ -610,11 +610,16 @@ def interactive_session(
             print(f"    {line}")
         related = find_related_rules(group, rule_index)
         if related:
-            for folder in related:
-                print(color(f"  \u21b3 Related existing rule: {folder}", "yellow"))
+            for i, folder in enumerate(related, 1):
+                print(color(f"  \u21b3 [{i}] Related existing rule: {folder}", "yellow"))
 
+        related_hint = ""
+        if related:
+            n = len(related)
+            nums = "1" if n == 1 else f"1-{n}"
+            related_hint = f" / [{color(nums, 'yellow')}] use related"
         while True:
-            choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
+            choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
             if choice in ("a", "accept", ""):
                 accepted_rules.append(suggestion)
                 print(f"  {color('✓ Accepted', 'green')}")
@@ -641,8 +646,16 @@ def interactive_session(
                 print(f"\n  Stopping early.")
                 _output_rules(accepted_rules, output_file)
                 return
+            elif choice.isdigit() and 1 <= int(choice) <= len(related):
+                chosen_folder = related[int(choice) - 1]
+                rule = re.sub(r"move_to: .+", f"move_to: {chosen_folder}", suggestion)
+                accepted_rules.append(rule)
+                existing_folders.add(chosen_folder)
+                print(color(f"  ✓ Accepted with folder: {chosen_folder}", "green"))
+                break
             else:
-                print("  Please enter a, f, s, or q.")
+                opts = "a, f, s, q" + (f", or 1-{len(related)}" if related else "")
+                print(f"  Please enter {opts}.")
 
         print()
 
