@@ -35,7 +35,7 @@ By default the script looks for `.env` next to your `config.yaml`. Keys match mm
 
 ```sh
 server=imap.example.com
-user=me@example.com
+username=me@example.com
 password=secret
 port=993
 ```

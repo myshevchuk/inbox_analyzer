@@ -9,7 +9,7 @@ All processing happens locally — no email data is sent anywhere.
 
 Usage:
     python inbox_analyzer.py --config /path/to/mmuxer/config.yaml
-    python inbox_analyzer.py --config /path/to/mmuxer/config.yaml --server imap.example.com --user me@example.com
+    python inbox_analyzer.py --config /path/to/mmuxer/config.yaml --server imap.example.com --username me@example.com
     python inbox_analyzer.py --config /path/to/mmuxer/config.yaml --limit 500
 """
 
@@ -563,7 +563,7 @@ def main():
         epilog="""
 Examples:
   %(prog)s --config ~/mmuxer/config.yaml
-  %(prog)s --config ~/mmuxer/config.yaml --server imap.example.com --user me@example.com
+  %(prog)s --config ~/mmuxer/config.yaml --server imap.example.com --username me@example.com
   %(prog)s --config ~/mmuxer/config.yaml --limit 1000 --output new_rules.yaml
   %(prog)s --config ~/mmuxer/config.yaml --min-count 3
         """,
@@ -594,7 +594,7 @@ Examples:
     parser.add_argument(
         "--env-file",
         metavar="FILE",
-        help="path to a .env file with SERVER, USER, PASSWORD, PORT",
+        help="path to a .env file with SERVER, USERNAME, PASSWORD, PORT",
     )
     parser.add_argument(
         "--folder",
@@ -636,14 +636,14 @@ Examples:
     env = load_env_file(env_file)
 
     server = args.server or env.get("server") or settings.get("server")
-    user = args.user or env.get("user") or settings.get("username")
+    username = args.username or env.get("username") or settings.get("username")
     if args.port == 993 and "port" in env:
         args.port = int(env["port"])
 
     if not server:
         server = input("IMAP server: ").strip()
     if not user:
-        user = input("IMAP username: ").strip()
+        username = input("IMAP username: ").strip()
 
     password = args.password or env.get("password") or settings.get("password")
     if not password:
