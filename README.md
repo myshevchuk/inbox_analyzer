@@ -27,16 +27,30 @@ pip install pyyaml
 inbox_analyzer.py --config ~/mmuxer/config.yaml
 ```
 
-Connection settings (`server`, `username`) are read from your mmuxer config. Password is prompted interactively if not present in config.
+Credentials are resolved in order: CLI flags → `.env` file → mmuxer config → interactive prompt.
+
+### Env file
+
+By default the script looks for `.env` next to your `config.yaml`. Keys match mmuxer's own setting names (case-insensitive):
+
+```sh
+server=imap.example.com
+user=me@example.com
+password=secret
+port=993
+```
+
+Use `--env-file` to point to a different path.
 
 ### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config` | *(required)* | Path to mmuxer `config.yaml` |
-| `--server` | from config | IMAP server hostname |
+| `--env-file` | `.env` next to config | Path to env file with credentials |
+| `--server` | from env/config | IMAP server hostname |
 | `--port` | `993` | IMAP port |
-| `--user` | from config | IMAP username |
+| `--user` | from env/config | IMAP username |
 | `--password` | *(prompted)* | IMAP password |
 | `--folder` | `INBOX` | Folder to analyze |
 | `--limit` | `500` | Max messages to fetch |

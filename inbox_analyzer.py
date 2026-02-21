@@ -25,6 +25,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+
+def load_env_file(path: Path) -> dict[str, str]:
+    """Parse a simple KEY=VALUE env file, ignoring comments and blank lines."""
+    env: dict[str, str] = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            env[key.strip().lower()] = value.strip()
+    except FileNotFoundError:
+        pass
+    return env
+
+
 try:
     import yaml
 except ImportError:
@@ -576,6 +592,11 @@ Examples:
         help="IMAP password (will prompt if not provided)",
     )
     parser.add_argument(
+        "--env-file",
+        metavar="FILE",
+        help="path to a .env file with SERVER, USER, PASSWORD, PORT",
+    )
+    parser.add_argument(
         "--folder",
         default="INBOX",
         help="IMAP folder to analyze (default: INBOX)",
@@ -609,15 +630,22 @@ Examples:
 
     # Resolve connection settings
     settings = config.get("settings", {})
-    server = args.server or settings.get("server")
-    user = args.user or settings.get("username")
+
+    # Load env file (default: .env next to the config file)
+    env_file = Path(args.env_file).expanduser() if args.env_file else config_path.parent / ".env"
+    env = load_env_file(env_file)
+
+    server = args.server or env.get("server") or settings.get("server")
+    user = args.user or env.get("user") or settings.get("username")
+    if args.port == 993 and "port" in env:
+        args.port = int(env["port"])
 
     if not server:
         server = input("IMAP server: ").strip()
     if not user:
         user = input("IMAP username: ").strip()
 
-    password = args.password or settings.get("password")
+    password = args.password or env.get("password") or settings.get("password")
     if not password:
         password = getpass.getpass("IMAP password: ")
 
