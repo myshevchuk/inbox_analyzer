@@ -55,7 +55,6 @@ except ImportError:
 @dataclass
 class MessageInfo:
     """Minimal header info extracted from a single message."""
-    uid: str
     from_addr: str  # normalized email address
     from_display: str  # display name
     to_addrs: list[str]
@@ -301,11 +300,9 @@ def fetch_inbox_headers(
 
         # data comes as pairs of (metadata, header_bytes) followed by closing paren
         j = 0
-        batch_idx = 0
         while j < len(data):
             item = data[j]
             if isinstance(item, tuple) and len(item) == 2:
-                uid = batch[batch_idx] if batch_idx < len(batch) else b"?"
                 raw_headers = item[1]
                 if isinstance(raw_headers, bytes):
                     raw_headers = raw_headers.decode("utf-8", errors="replace")
@@ -324,7 +321,6 @@ def fetch_inbox_headers(
 
                 messages.append(
                     MessageInfo(
-                        uid=uid.decode() if isinstance(uid, bytes) else str(uid),
                         from_addr=from_addr,
                         from_display=from_display,
                         to_addrs=to_addrs + cc_addrs,
@@ -333,7 +329,6 @@ def fetch_inbox_headers(
                         date=date,
                     )
                 )
-                batch_idx += 1
             j += 1
 
         pct = min(100, int((i + len(batch)) / len(uids) * 100))
