@@ -439,11 +439,7 @@ def suggest_rule(group: SenderGroup) -> str:
     lines.append(f"    condition:")
 
     # If there's a subaddress in TO, prefer that
-    subaddress_to = None
-    for to in group.to_addrs:
-        if "+" in to:
-            subaddress_to = to
-            break
+    subaddress_to = next((to for to in sorted(group.to_addrs) if "+" in to), None)
 
     if subaddress_to:
         lines.append(f"      TO: {subaddress_to}")
