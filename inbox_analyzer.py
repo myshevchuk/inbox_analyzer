@@ -85,7 +85,7 @@ def load_mmuxer_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def extract_covered_patterns(config: dict) -> dict:
+def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = None) -> dict:
     """
     Extract all FROM/TO/SUBJECT patterns from existing mmuxer rules.
     Returns a dict with keys 'from', 'to', 'subject' containing sets of
@@ -115,6 +115,8 @@ def extract_covered_patterns(config: dict) -> dict:
                         _extract_from_condition(sub)
 
     for rule in rules:
+        if ignore_folders and rule.get("move_to") in ignore_folders:
+            continue
         cond = rule.get("condition", {})
         if cond:
             _extract_from_condition(cond)
@@ -602,6 +604,13 @@ Examples:
         help="IMAP folder to analyze (default: INBOX)",
     )
     parser.add_argument(
+        "--ignore-folder",
+        metavar="FOLDER",
+        action="append",
+        dest="ignore_folders",
+        help="exclude rules targeting this folder from coverage check (repeatable)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=500,
@@ -650,7 +659,8 @@ Examples:
         password = getpass.getpass("IMAP password: ")
 
     # Extract existing rule patterns
-    covered = extract_covered_patterns(config)
+    ignore_folders = set(args.ignore_folders or []) | {args.folder}
+    covered = extract_covered_patterns(config, ignore_folders)
     existing_folders = extract_existing_folders(config)
     print(f"Loaded {sum(len(v) for v in covered.values())} patterns from existing rules.")
     print(f"Existing folders: {len(existing_folders)}")
