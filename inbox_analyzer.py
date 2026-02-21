@@ -245,17 +245,16 @@ def extract_to_addresses(to_header: str) -> list[str]:
     return addrs
 
 
-def extract_list_id(headers: str) -> Optional[str]:
-    """Extract List-Id value from raw headers."""
-    match = re.search(r"^List-Id:\s*(.+)$", headers, re.MULTILINE | re.IGNORECASE)
-    if match:
-        value = match.group(1).strip()
-        # Extract the <list-id> part if present
-        id_match = re.search(r"<([^>]+)>", value)
-        if id_match:
-            return id_match.group(1).strip()
-        return value
-    return None
+def extract_list_id(msg_obj) -> Optional[str]:
+    """Extract List-Id value from a parsed email message object."""
+    value = msg_obj.get("List-Id", "").strip()
+    if not value:
+        return None
+    # Extract the <list-id> part if present
+    id_match = re.search(r"<([^>]+)>", value)
+    if id_match:
+        return id_match.group(1).strip()
+    return value
 
 
 def fetch_inbox_headers(
@@ -321,7 +320,7 @@ def fetch_inbox_headers(
                 cc_addrs = extract_to_addresses(msg_obj.get("Cc", ""))
                 subject = decode_header_value(msg_obj.get("Subject", ""))
                 date = decode_header_value(msg_obj.get("Date", ""))
-                list_id = extract_list_id(raw_headers)
+                list_id = extract_list_id(msg_obj)
 
                 messages.append(
                     MessageInfo(
@@ -564,7 +563,7 @@ def _output_rules(rules: list[str], output_file: Optional[str]):
         print("\nNo rules were accepted.")
         return
 
-    output = "\n".join(rules)
+    output = "\n\n".join(rules)
 
     if output_file:
         with open(output_file, "w") as f:
@@ -717,13 +716,13 @@ Examples:
         sys.exit(0)
 
     # Analyze
-    groups = group_uncovered_messages(messages, covered, ignore_to_patterns)
+    all_groups = group_uncovered_messages(messages, covered, ignore_to_patterns)
 
     # Filter by minimum count
-    groups = [g for g in groups if g.count >= args.min_count]
+    groups = [g for g in all_groups if g.count >= args.min_count]
     if not groups:
         print(f"\nNo sender groups with {args.min_count}+ messages found.")
-        one_offs = [g for g in group_uncovered_messages(messages, covered, ignore_to_patterns) if g.count == 1]
+        one_offs = [g for g in all_groups if g.count == 1]
         if one_offs:
             print(f"({len(one_offs)} senders with only 1 message — use --min-count 1 to include them)")
         sys.exit(0)
