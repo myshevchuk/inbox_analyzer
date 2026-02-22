@@ -295,25 +295,25 @@ def fetch_inbox_headers(
         print(f"Failed to search {folder}: {status}", file=sys.stderr)
         return []
 
-    uids = data[0].split()
-    if not uids:
+    seq_nums = data[0].split()
+    if not seq_nums:
         print(f"No messages found in {folder}.")
         return []
 
     # Take the most recent N messages
-    uids = uids[-limit:]
-    print(f"Fetching headers for {len(uids)} messages from {folder}...")
+    seq_nums = seq_nums[-limit:]
+    print(f"Fetching headers for {len(seq_nums)} messages from {folder}...")
 
     messages = []
     # Fetch in batches to avoid overwhelming the server
     batch_size = 100
-    for i in range(0, len(uids), batch_size):
-        batch = uids[i : i + batch_size]
-        uid_range = b",".join(batch)
+    for i in range(0, len(seq_nums), batch_size):
+        batch = seq_nums[i : i + batch_size]
+        seq_range = b",".join(batch)
 
         # Fetch envelope headers + List-Id
         status, data = conn.fetch(
-            uid_range,
+            seq_range,
             "(BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE LIST-ID)])",
         )
         if status != "OK":
@@ -353,7 +353,7 @@ def fetch_inbox_headers(
                 )
             j += 1
 
-        pct = min(100, int((i + len(batch)) / len(uids) * 100))
+        pct = min(100, int((i + len(batch)) / len(seq_nums) * 100))
         print(f"  Progress: {pct}%", end="\r")
 
     print(f"\nFetched {len(messages)} messages.")
