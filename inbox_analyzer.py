@@ -85,8 +85,12 @@ class SenderGroup:
 
 def load_mmuxer_config(config_path: str) -> dict:
     """Load and return the mmuxer YAML config."""
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"Failed to parse config: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _walk_conditions(condition: dict):
