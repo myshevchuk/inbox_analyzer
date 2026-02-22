@@ -588,75 +588,79 @@ def interactive_session(
     print(f"  {color('q', 'red')}uit    — stop and output rules collected so far")
     print()
 
-    for idx, group in enumerate(groups, 1):
-        print(f"{color(f'[{idx}/{total}]', 'bold')} {color(group.from_addr, 'cyan')}")
-        if group.from_display:
-            print(f"  Display name: {group.from_display}")
-        print(f"  Messages: {color(str(group.count), 'bold')}")
-        if group.list_id:
-            print(f"  List-Id: {group.list_id}")
-        if group.to_addrs:
-            relevant_to = [a for a in group.to_addrs if "+" in a]
-            if relevant_to:
-                print(f"  Subaddressed To: {', '.join(relevant_to)}")
-        print(f"  Sample subjects:")
-        for subj in group.sample_subjects[:3]:
-            print(f"    • {subj[:80]}")
+    try:
+        for idx, group in enumerate(groups, 1):
+            print(f"{color(f'[{idx}/{total}]', 'bold')} {color(group.from_addr, 'cyan')}")
+            if group.from_display:
+                print(f"  Display name: {group.from_display}")
+            print(f"  Messages: {color(str(group.count), 'bold')}")
+            if group.list_id:
+                print(f"  List-Id: {group.list_id}")
+            if group.to_addrs:
+                relevant_to = [a for a in group.to_addrs if "+" in a]
+                if relevant_to:
+                    print(f"  Subaddressed To: {', '.join(relevant_to)}")
+            print(f"  Sample subjects:")
+            for subj in group.sample_subjects[:3]:
+                print(f"    • {subj[:80]}")
 
-        suggestion = suggest_rule(group)
-        print(f"\n  {color('Suggested rule:', 'green')}")
-        for line in suggestion.split("\n"):
-            print(f"    {line}")
-        related = find_related_rules(group, rule_index)
-        if related:
-            for i, folder in enumerate(related, 1):
-                print(color(f"  \u21b3 [{i}] Related existing rule: {folder}", "yellow"))
+            suggestion = suggest_rule(group)
+            print(f"\n  {color('Suggested rule:', 'green')}")
+            for line in suggestion.split("\n"):
+                print(f"    {line}")
+            related = find_related_rules(group, rule_index)
+            if related:
+                for i, folder in enumerate(related, 1):
+                    print(color(f"  \u21b3 [{i}] Related existing rule: {folder}", "yellow"))
 
-        related_hint = ""
-        if related:
-            n = len(related)
-            nums = "1" if n == 1 else f"1-{n}"
-            related_hint = f" / [{color(nums, 'yellow')}] use related"
-        while True:
-            choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
-            if choice in ("a", "accept", ""):
-                accepted_rules.append(suggestion)
-                print(f"  {color('✓ Accepted', 'green')}")
-                break
-            elif choice in ("f", "folder"):
-                print(f"  Existing folders: {', '.join(sorted(existing_folders))}")
-                new_folder = input("  Enter folder name: ").strip()
-                if new_folder:
-                    # Rebuild rule with new folder
-                    modified = re.sub(
-                        r"move_to: .+", f"move_to: {new_folder}", suggestion
-                    )
-                    accepted_rules.append(modified)
-                    existing_folders.add(new_folder)
-                    print(f"  {color('✓ Accepted with folder: ' + new_folder, 'green')}")
-                else:
-                    print("  No folder entered, using suggestion.")
+            related_hint = ""
+            if related:
+                n = len(related)
+                nums = "1" if n == 1 else f"1-{n}"
+                related_hint = f" / [{color(nums, 'yellow')}] use related"
+            while True:
+                choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
+                if choice in ("a", "accept", ""):
                     accepted_rules.append(suggestion)
-                break
-            elif choice in ("s", "skip"):
-                print(f"  {color('— Skipped', 'dim')}")
-                break
-            elif choice in ("q", "quit"):
-                print(f"\n  Stopping early.")
-                _output_rules(accepted_rules, output_file)
-                return
-            elif choice.isdigit() and 1 <= int(choice) <= len(related):
-                chosen_folder = related[int(choice) - 1]
-                rule = re.sub(r"move_to: .+", f"move_to: {chosen_folder}", suggestion)
-                accepted_rules.append(rule)
-                existing_folders.add(chosen_folder)
-                print(color(f"  ✓ Accepted with folder: {chosen_folder}", "green"))
-                break
-            else:
-                opts = "a, f, s, q" + (f", or 1-{len(related)}" if related else "")
-                print(f"  Please enter {opts}.")
+                    print(f"  {color('✓ Accepted', 'green')}")
+                    break
+                elif choice in ("f", "folder"):
+                    print(f"  Existing folders: {', '.join(sorted(existing_folders))}")
+                    new_folder = input("  Enter folder name: ").strip()
+                    if new_folder:
+                        # Rebuild rule with new folder
+                        modified = re.sub(
+                            r"move_to: .+", f"move_to: {new_folder}", suggestion
+                        )
+                        accepted_rules.append(modified)
+                        existing_folders.add(new_folder)
+                        print(f"  {color('✓ Accepted with folder: ' + new_folder, 'green')}")
+                    else:
+                        print("  No folder entered, using suggestion.")
+                        accepted_rules.append(suggestion)
+                    break
+                elif choice in ("s", "skip"):
+                    print(f"  {color('— Skipped', 'dim')}")
+                    break
+                elif choice in ("q", "quit"):
+                    print(f"\n  Stopping early.")
+                    _output_rules(accepted_rules, output_file)
+                    return
+                elif choice.isdigit() and 1 <= int(choice) <= len(related):
+                    chosen_folder = related[int(choice) - 1]
+                    rule = re.sub(r"move_to: .+", f"move_to: {chosen_folder}", suggestion)
+                    accepted_rules.append(rule)
+                    existing_folders.add(chosen_folder)
+                    print(color(f"  ✓ Accepted with folder: {chosen_folder}", "green"))
+                    break
+                else:
+                    opts = "a, f, s, q" + (f", or 1-{len(related)}" if related else "")
+                    print(f"  Please enter {opts}.")
 
-        print()
+            print()
+
+    except KeyboardInterrupt:
+        print(f"\n\n  Interrupted.")
 
     _output_rules(accepted_rules, output_file)
 
