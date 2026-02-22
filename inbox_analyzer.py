@@ -487,12 +487,11 @@ def group_uncovered_messages(
 # ---------------------------------------------------------------------------
 
 def suggest_folder_name(group: SenderGroup) -> str:
-    """
-    Heuristically suggest a folder name based on the sender info.
-    Uses Category.Service convention.
-    """
+    """Heuristically suggest a folder name based on the sender info."""
     addr = group.from_addr
     display = group.from_display
+    if not addr and not display:
+        return "Uncategorized"
     domain = addr.split("@")[-1] if "@" in addr else addr
 
     # Use display name if available, otherwise domain
