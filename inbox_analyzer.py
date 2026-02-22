@@ -217,41 +217,6 @@ def extract_existing_folders(config: dict) -> set[str]:
     return folders
 
 
-def is_message_covered(msg: MessageInfo, covered: dict) -> bool:
-    """
-    Check whether a message would be caught by existing rules.
-    This is a heuristic — it checks if sender or recipient patterns appear
-    in the covered sets. It doesn't fully replicate mmuxer's matching logic,
-    but it's good enough for finding uncovered messages.
-    """
-    from_lower = msg.from_addr.lower()
-
-    # Check exact FROM match
-    if from_lower in covered["from"]:
-        return True
-
-    # Check partial FROM match (mmuxer may match on substrings)
-    for pattern in covered["from"]:
-        if pattern in from_lower or from_lower in pattern:
-            return True
-
-    # Check TO matches
-    for to_addr in msg.to_addrs:
-        to_lower = to_addr.lower()
-        if to_lower in covered["to"]:
-            return True
-        for pattern in covered["to"]:
-            if pattern in to_lower:
-                return True
-
-    # Check SUBJECT matches
-    subj_lower = msg.subject.lower()
-    for pattern in covered["subject"]:
-        if pattern in subj_lower:
-            return True
-
-    return False
-
 
 # ---------------------------------------------------------------------------
 # IMAP connection and header fetching

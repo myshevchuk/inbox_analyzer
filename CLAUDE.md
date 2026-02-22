@@ -46,7 +46,7 @@ Example rule:
 
 ## Known limitations and areas for improvement
 
-- **Matching heuristic is loose**: `is_message_covered()` uses substring matching which may produce false negatives/positives. Could be improved to better replicate mmuxer's actual matching logic.
+- **Matching heuristic is loose**: `_coverage_reason()` uses substring matching which may produce false negatives/positives. Could be improved to better replicate mmuxer's actual matching logic.
 - **Folder name suggestion is naive**: `suggest_folder_name()` extracts from display name or domain. It doesn't attempt to fit into the user's existing `Category.Service` taxonomy. Could use existing folder hierarchy to suggest categories.
 - **mmuxer has no List-Id condition**: mmuxer supports only FROM/TO/SUBJECT/BODY matchers — List-Id is not a supported condition type. List-Id is fetched and used internally to group mailing list messages that rotate sender addresses; when multiple senders are seen for the same list, the script generates an `ANY: [FROM: ...]` rule covering all of them.
 - **No domain-level grouping**: doesn't detect patterns like "all emails from *.example.com". Mailing lists with rotating sender addresses are handled via List-Id grouping.
