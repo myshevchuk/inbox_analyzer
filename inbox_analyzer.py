@@ -549,9 +549,12 @@ COLORS = {
     "red": "\033[31m",
     "reset": "\033[0m",
 }
+_USE_COLOR = sys.stdout.isatty()
 
 
 def color(text: str, *styles: str) -> str:
+    if not _USE_COLOR:
+        return text
     prefix = "".join(COLORS.get(s, "") for s in styles)
     return f"{prefix}{text}{COLORS['reset']}"
 
