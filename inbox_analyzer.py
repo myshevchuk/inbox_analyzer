@@ -619,7 +619,7 @@ def interactive_session(
                 nums = "1" if n == 1 else f"1-{n}"
                 related_hint = f" / [{color(nums, 'yellow')}] use related"
             while True:
-                choice = input(f"\n  [{color('a', 'green')}]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
+                choice = input(f"\n  [{color('a', 'green')}/↵]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
                 if choice in ("a", "accept", ""):
                     accepted_rules.append(suggestion)
                     print(f"  {color('✓ Accepted', 'green')}")
