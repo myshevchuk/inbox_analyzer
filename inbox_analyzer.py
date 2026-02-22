@@ -361,7 +361,7 @@ def fetch_inbox_headers(
             j += 1
 
         pct = min(100, int((i + len(batch)) / len(seq_nums) * 100))
-        print(f"  Progress: {pct}%", end="\r")
+        print(f"  Progress: {pct:3d}%    ", end="\r")
 
     print(f"\nFetched {len(messages)} messages.")
     return messages
