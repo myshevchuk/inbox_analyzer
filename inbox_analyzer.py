@@ -16,6 +16,7 @@ Usage:
 import argparse
 import email
 import email.header
+import email.utils
 import getpass
 import imaplib
 import re
@@ -253,14 +254,7 @@ def extract_to_addresses(to_header: str) -> list[str]:
     if not to_header:
         return []
     decoded = decode_header_value(to_header)
-    addrs = []
-    for part in decoded.split(","):
-        match = re.search(r"<([^>]+)>", part)
-        if match:
-            addrs.append(match.group(1).strip().lower())
-        elif "@" in part:
-            addrs.append(part.strip().lower())
-    return addrs
+    return [addr.lower() for _, addr in email.utils.getaddresses([decoded]) if addr]
 
 
 def extract_list_id(msg_obj) -> Optional[str]:
