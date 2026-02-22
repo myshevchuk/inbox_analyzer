@@ -152,6 +152,13 @@ def build_rule_index(config: dict) -> list[tuple[str, set[str], set[str]]]:
     return index
 
 
+def _domains_related(d1: str, d2: str) -> bool:
+    """Check if two domains are the same or one is a subdomain of the other."""
+    if d1 == d2:
+        return True
+    return d1.endswith("." + d2) or d2.endswith("." + d1)
+
+
 def find_related_rules(
     group: SenderGroup,
     rule_index: list[tuple[str, set[str], set[str]]],
@@ -172,9 +179,11 @@ def find_related_rules(
     for folder, from_pats, to_pats in rule_index:
         if folder in seen:
             continue
-        all_pats = from_pats | to_pats
+        pat_domains = set()
+        for pat in from_pats | to_pats:
+            pat_domains.add(pat.split("@")[-1] if "@" in pat else pat)
         for domain in candidates:
-            if any(domain in pat or pat in domain for pat in all_pats):
+            if any(_domains_related(domain, pd) for pd in pat_domains):
                 related.append(folder)
                 seen.add(folder)
                 break
