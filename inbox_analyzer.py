@@ -85,6 +85,18 @@ def load_mmuxer_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _walk_conditions(condition: dict):
+    """Yield (key_upper, value) pairs from a mmuxer condition tree."""
+    for key, value in condition.items():
+        k = key.upper()
+        if k in ("ANY", "ALL"):
+            for sub in value:
+                if isinstance(sub, dict):
+                    yield from _walk_conditions(sub)
+        else:
+            yield k, value
+
+
 def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = None) -> dict:
     """
     Extract all FROM/TO/SUBJECT patterns from existing mmuxer rules.
@@ -100,30 +112,14 @@ def extract_covered_patterns(config: dict, ignore_folders: set[str] | None = Non
     if not rules:
         return covered
 
-    def _extract_from_condition(cond: dict):
-        for key, value in cond.items():
-            key_upper = key.upper()
-            if key_upper == "FROM":
-                covered["from"].add(value.lower())
-            elif key_upper == "TO":
-                covered["to"].add(value.lower())
-            elif key_upper == "SUBJECT":
-                covered["subject"].add(value.lower())
-            elif key_upper == "ANY":
-                for sub in value:
-                    if isinstance(sub, dict):
-                        _extract_from_condition(sub)
-            elif key_upper == "ALL":
-                for sub in value:
-                    if isinstance(sub, dict):
-                        _extract_from_condition(sub)
-
     for rule in rules:
         if ignore_folders and rule.get("move_to") in ignore_folders:
             continue
         cond = rule.get("condition", {})
         if cond:
-            _extract_from_condition(cond)
+            for key, value in _walk_conditions(cond):
+                if key.lower() in covered:
+                    covered[key.lower()].add(value.lower())
 
     return covered
 
@@ -136,18 +132,6 @@ def build_rule_index(config: dict) -> list[tuple[str, set[str], set[str]]]:
     """
     index = []
 
-    def _collect(cond: dict, froms: set, tos: set):
-        for key, value in cond.items():
-            k = key.upper()
-            if k == "FROM":
-                froms.add(value.lower())
-            elif k == "TO":
-                tos.add(value.lower())
-            elif k in ("ANY", "ALL"):
-                for sub in value:
-                    if isinstance(sub, dict):
-                        _collect(sub, froms, tos)
-
     for rule in config.get("rules", []):
         folder = rule.get("move_to", "")
         if not folder:
@@ -156,7 +140,11 @@ def build_rule_index(config: dict) -> list[tuple[str, set[str], set[str]]]:
         tos: set[str] = set()
         cond = rule.get("condition", {})
         if cond:
-            _collect(cond, froms, tos)
+            for key, value in _walk_conditions(cond):
+                if key == "FROM":
+                    froms.add(value.lower())
+                elif key == "TO":
+                    tos.add(value.lower())
         if froms or tos:
             index.append((folder, froms, tos))
 
