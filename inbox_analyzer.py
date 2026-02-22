@@ -285,6 +285,19 @@ def extract_list_id(msg_obj) -> Optional[str]:
     return value
 
 
+def _normalize_list_id(list_id: str) -> str:
+    """Strip leading purely-numeric dot-separated labels from a List-Id.
+
+    Some mailing lists embed per-message numbers as prefixes, e.g.
+    '16138.list-id.www.example.de'. Stripping the numeric prefix allows
+    messages from the same list to be grouped together.
+    """
+    parts = list_id.split(".")
+    while parts and parts[0].isdigit():
+        parts.pop(0)
+    return ".".join(parts) if parts else list_id
+
+
 def fetch_inbox_headers(
     conn: imaplib.IMAP4_SSL,
     folder: str = "INBOX",
@@ -429,7 +442,7 @@ def group_uncovered_messages(
     by_sender: dict[str, list[MessageInfo]] = defaultdict(list)
     for m in uncovered:
         if m.list_id:
-            by_list_id[m.list_id].append(m)
+            by_list_id[_normalize_list_id(m.list_id)].append(m)
             if debug:
                 print(f"  [debug] list group  '{m.list_id}': {m.from_addr}")
         else:
