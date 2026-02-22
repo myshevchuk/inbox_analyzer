@@ -222,7 +222,7 @@ def extract_existing_folders(config: dict) -> set[str]:
 
 def connect_imap(server: str, username: str, password: str, port: int = 993) -> imaplib.IMAP4_SSL:
     """Connect and authenticate to the IMAP server."""
-    conn = imaplib.IMAP4_SSL(server, port)
+    conn = imaplib.IMAP4_SSL(server, port, timeout=30)
     conn.login(username, password)
     return conn
 
