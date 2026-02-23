@@ -959,6 +959,17 @@ def interactive_session(
             if group.related_group_keys:
                 print(f"  Related groups: {', '.join(group.related_group_keys)}")
 
+            if debug:
+                print(color("  [debug]", "dim"))
+                print(color(f"    group_key:            {group.group_key!r}", "dim"))
+                print(color(f"    anchor_type:          {group.anchor_type!r}", "dim"))
+                print(color(f"    anchor_tokens:        {group.anchor_tokens}", "dim"))
+                print(color(f"    recipient_category:   {group.recipient_category!r}", "dim"))
+                print(color(f"    suggested_destination:{group.suggested_destination!r}", "dim"))
+                print(color(f"    from_addrs:           {sorted(group.from_addrs)}", "dim"))
+                print(color(f"    to_addrs:             {sorted(group.to_addrs)}", "dim"))
+                print(color(f"    related_group_keys:   {group.related_group_keys}", "dim"))
+
             suggestion = suggest_rule(group)
             print(f"\n  {color('Suggested rule:', 'green')}")
             for line in suggestion.split("\n"):
