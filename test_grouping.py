@@ -564,3 +564,96 @@ def test_pipeline_end_to_end():
     assert len(result) >= 1
     for group in result:
         assert group.group_key != ""
+
+
+# ---------------------------------------------------------------------------
+# recipient_category tests
+# ---------------------------------------------------------------------------
+
+def test_recipient_category_extracted_for_from_group():
+    """FROM group message with to_addrs=["forma@mydomain.com"], primary_local="user" → recipient_category="forma"."""
+    msg = make_msg(
+        from_addr="bank@somebank.com",
+        from_display="Bank",
+        to_addrs=["forma@mydomain.com"],
+        subject="Your statement",
+    )
+    config = make_config()
+    result = ia.classify_and_group_emails([msg], config, mydomain="mydomain.com", primary_local="user")
+    assert len(result) == 1
+    group = result[0]
+    assert group.recipient_category == "forma"
+
+
+def test_recipient_category_not_set_for_primary_inbox():
+    """FROM group message with to_addrs=["user@mydomain.com"], primary_local="user" → recipient_category=""."""
+    msg = make_msg(
+        from_addr="bank@somebank.com",
+        from_display="Bank",
+        to_addrs=["user@mydomain.com"],
+        subject="Your statement",
+    )
+    config = make_config()
+    result = ia.classify_and_group_emails([msg], config, mydomain="mydomain.com", primary_local="user")
+    assert len(result) == 1
+    group = result[0]
+    assert group.recipient_category == ""
+
+
+def test_recipient_category_from_subaddress_prefix():
+    """TO group message with to_addrs=["apps+spotify@mydomain.com"] → recipient_category is present (set to "apps")."""
+    msg = make_msg(
+        from_addr="noreply@spotify.com",
+        from_display="Spotify",
+        to_addrs=["apps+spotify@mydomain.com"],
+        subject="Your playlist",
+    )
+    config = make_config()
+    result = ia.classify_and_group_emails([msg], config, mydomain="mydomain.com", primary_local="user")
+    assert len(result) == 1
+    group = result[0]
+    assert group.anchor_type == "TO"
+    assert group.recipient_category == "apps"
+
+
+def test_suggest_folder_name_with_recipient_category():
+    """FROM group with recipient_category="forma", from_display="Bank Name" → returns "Forma.Bank Name"."""
+    group = ia.SenderGroup(
+        from_addr="info@somebank.com",
+        from_display="Bank Name",
+        count=1,
+        sample_subjects=[],
+        anchor_type="FROM",
+        group_key="FROM:info@somebank.com",
+        recipient_category="forma",
+    )
+    assert ia.suggest_folder_name(group) == "Forma.Bank Name"
+
+
+def test_suggest_folder_name_no_category_unchanged():
+    """FROM group with recipient_category="", from_display="Bank Name" → returns "Bank Name" unchanged."""
+    group = ia.SenderGroup(
+        from_addr="info@somebank.com",
+        from_display="Bank Name",
+        count=1,
+        sample_subjects=[],
+        anchor_type="FROM",
+        group_key="FROM:info@somebank.com",
+        recipient_category="",
+    )
+    assert ia.suggest_folder_name(group) == "Bank Name"
+
+
+def test_recipient_category_ignored_when_no_mydomain():
+    """Message with to_addrs=["forma@mydomain.com"], mydomain=None → recipient_category=""."""
+    msg = make_msg(
+        from_addr="bank@somebank.com",
+        from_display="Bank",
+        to_addrs=["forma@mydomain.com"],
+        subject="Your statement",
+    )
+    config = make_config()
+    result = ia.classify_and_group_emails([msg], config, mydomain=None, primary_local="user")
+    assert len(result) == 1
+    group = result[0]
+    assert group.recipient_category == ""

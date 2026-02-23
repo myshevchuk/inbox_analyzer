@@ -82,6 +82,7 @@ class SenderGroup:
     anchor_tokens: list[str] = field(default_factory=list)  # tokens for rule matching
     suggested_destination: Optional[str] = None             # matched folder from sender_index
     related_group_keys: list[str] = field(default_factory=list)  # keys of related groups
+    recipient_category: str = ""  # local part of TO alias on mydomain (if not primary inbox)
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +681,7 @@ def classify_and_group_emails(
     uncovered_emails: list[MessageInfo],
     config: dict,
     mydomain: Optional[str],
+    primary_local: Optional[str] = None,
 ) -> list[SenderGroup]:
     """
     Classify and group uncovered emails into SenderGroup objects with enriched
@@ -717,6 +719,20 @@ def classify_and_group_emails(
             anchor_type = ""
             recipient_hint = None
             group_key = ""  # determined in step 4
+
+        # Extract recipient category from TO addresses on mydomain
+        # (any local part that is not the user's primary inbox address)
+        recipient_category = ""
+        if mydomain:
+            for addr in msg.to_addrs:
+                addr_lower = addr.lower()
+                if addr_lower.endswith("@" + mydomain.lower()):
+                    local = addr_lower.rsplit("@", 1)[0]
+                    # Strip any +tag suffix to get the base local part
+                    base_local = local.split("+")[0]
+                    if base_local != (primary_local or "").lower() and base_local:
+                        recipient_category = base_local
+                        break
 
         # Step 2: token extraction
         sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
@@ -765,6 +781,7 @@ def classify_and_group_emails(
                 anchor_tokens=anchor_tokens,
                 suggested_destination=suggested_destination,
                 related_group_keys=[],
+                recipient_category=recipient_category,
             )
 
     # Cross-group linking pass: TO groups ↔ FROM groups sharing anchor tokens
@@ -795,36 +812,34 @@ def suggest_folder_name(group: SenderGroup) -> str:
     if group.suggested_destination:
         return group.suggested_destination
 
-    # For TO groups: derive "Prefix.Tag" from the subaddress (e.g. apps+spotify → Apps.Spotify)
+    # For TO groups with subaddress: category=prefix, service=tag
     if group.anchor_type == "TO" and "+" in group.group_key:
-        local_part = group.group_key[len("TO:"):]  # "apps+spotify"
+        local_part = group.group_key[len("TO:"):]
         prefix, tag = local_part.split("+", 1)
-        return f"{prefix.capitalize()}.{tag.capitalize()}"
+        service = tag.capitalize()
+        return f"{prefix.capitalize()}.{service}"
+
+    # Category prefix from non-primary TO alias (e.g. forma@domain.com → "Forma")
+    category_prefix = group.recipient_category.capitalize() if group.recipient_category else ""
 
     addr = group.from_addr
     display = group.from_display
     if not addr and not display:
-        return "Uncategorized"
+        return f"{category_prefix}.Uncategorized" if category_prefix else "Uncategorized"
     domain = addr.split("@")[-1] if "@" in addr else addr
 
-    # Use display name if available, otherwise domain
     if display:
-        # Clean up common prefixes
         name = display
-        for prefix in ["no-reply", "noreply", "notifications", "info", "support", "team"]:
-            name = re.sub(rf"^{prefix}\s*[-@]\s*", "", name, flags=re.IGNORECASE)
+        for prefix_str in ["no-reply", "noreply", "notifications", "info", "support", "team"]:
+            name = re.sub(rf"^{prefix_str}\s*[-@]\s*", "", name, flags=re.IGNORECASE)
         name = name.strip()
         if name:
-            return name
+            return f"{category_prefix}.{name}" if category_prefix else name
 
-    # Fall back to domain-based name
-    # Strip common TLDs and extract meaningful part
     parts = domain.split(".")
-    if len(parts) >= 2:
-        name = parts[-2]  # e.g., "github" from "github.com"
-    else:
-        name = domain
-    return name.capitalize()
+    name = parts[-2] if len(parts) >= 2 else domain
+    name = name.capitalize()
+    return f"{category_prefix}.{name}" if category_prefix else name
 
 
 def suggest_rule(group: SenderGroup) -> str:
@@ -1237,7 +1252,8 @@ Examples:
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
     mydomain = (username.split("@", 1)[1] if username and "@" in username else None) or extract_mydomain(config)
-    all_groups = classify_and_group_emails(uncovered, config, mydomain)
+    primary_local = username.split("@")[0].lower() if username and "@" in username else None
+    all_groups = classify_and_group_emails(uncovered, config, mydomain, primary_local=primary_local)
 
     # Strip ignored TO patterns from group to_addrs
     if ignore_to_patterns:
