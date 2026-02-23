@@ -215,35 +215,6 @@ def test_build_sender_index_ignores_delete_rules():
 
 
 # ---------------------------------------------------------------------------
-# extract_subaddress tests
-# ---------------------------------------------------------------------------
-
-def test_extract_subaddress_found():
-    result = ia.extract_subaddress("apps+spotify@mydomain.com", "mydomain.com")
-    assert result == ("apps", "spotify")
-
-
-def test_extract_subaddress_no_plus():
-    result = ia.extract_subaddress("plain@mydomain.com", "mydomain.com")
-    assert result is None
-
-
-def test_extract_subaddress_different_domain():
-    result = ia.extract_subaddress("apps+spotify@other.com", "mydomain.com")
-    assert result is None
-
-
-def test_extract_subaddress_case_insensitive():
-    result = ia.extract_subaddress("Apps+Spotify@MYDOMAIN.COM", "mydomain.com")
-    assert result == ("apps", "spotify")
-
-
-def test_extract_subaddress_multiple_tags():
-    result = ia.extract_subaddress("apps+a+b@mydomain.com", "mydomain.com")
-    assert result == ("apps", "a", "b")
-
-
-# ---------------------------------------------------------------------------
 # match_tokens_to_rule tests
 # ---------------------------------------------------------------------------
 

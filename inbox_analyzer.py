@@ -583,19 +583,6 @@ def match_tokens_to_rule(
     return best_folder
 
 
-def extract_subaddress(addr: str, mydomain: str) -> tuple[str, ...] | None:
-    """Extract subaddress parts from a single TO address.
-
-    Returns the local part split at '+' as a tuple, e.g. ("apps", "spotify")
-    for apps+spotify@mydomain. Returns None if addr is not on mydomain or
-    has no subaddress tag.
-    """
-    addr_lower = addr.lower()
-    if addr_lower.endswith("@" + mydomain.lower()):
-        local_part = addr_lower.rsplit("@", 1)[0]
-        if "+" in local_part:
-            return tuple(local_part.split("+"))
-    return None
 
 
 def classify_message(
@@ -610,38 +597,35 @@ def classify_message(
     anchoring; matches against sender_index for a suggested destination; and
     assigns a fully-resolved group_key and anchor_type.
     """
-    # Step 1: subaddress check — first match wins
+
+    anchor_type = ""
+    group_key = ""
+    recipient_category = ""
+    recipient_hint = None
+    tag_tokens: list[str] = []
+
+    # Step 1: scan TO addresses for subaddress and recipient category in one pass.
     # NOTE: only TO addresses are checked; CC is not yet in MessageInfo.
     # Multiple subaddressed TO addresses is a theoretical edge case and
     # is handled by taking the first match.
-    subaddr_result = None
     if mydomain:
-        for addr in msg.to_addrs:
-            subaddr_result = extract_subaddress(addr, mydomain)
-            if subaddr_result is not None:
-                break
-    tag_tokens: list[str] = []
-    if subaddr_result is not None:
-        anchor_type = "TO"
-        recipient_hint = subaddr_result[0]
-        group_key = "TO:" + "+".join(subaddr_result)
-        tag_tokens = list(subaddr_result[1:])
-    else:
-        anchor_type = ""
-        recipient_hint = None
-        group_key = ""
-
-    # Step 2: recipient category from TO addresses on mydomain
-    recipient_category = ""
-    if mydomain:
+        mydomain_lower = mydomain.lower()
+        primary_lower = (primary_local or "").lower()
         for addr in msg.to_addrs:
             addr_lower = addr.lower()
-            if addr_lower.endswith("@" + mydomain.lower()):
-                local = addr_lower.rsplit("@", 1)[0]
-                base_local = local.split("+")[0]
-                if base_local != (primary_local or "").lower() and base_local:
-                    recipient_category = base_local
-                    break
+            if not addr_lower.endswith("@" + mydomain_lower):
+                continue
+            parts = tuple(addr_lower.rsplit("@", 1)[0].split("+"))
+            base_local = parts[0]
+            if not anchor_type and len(parts) > 1:
+                anchor_type = "TO"
+                recipient_hint = base_local
+                group_key = "TO:" + "+".join(parts)
+                tag_tokens = list(parts[1:])
+            if not recipient_category and base_local and base_local != primary_lower:
+                recipient_category = base_local
+            if anchor_type and recipient_category:
+                break
 
     # Step 3: token extraction
     sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
