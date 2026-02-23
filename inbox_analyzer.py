@@ -85,6 +85,28 @@ class SenderGroup:
     recipient_category: str = ""  # local part of TO alias on mydomain (if not primary inbox)
 
 
+@dataclass
+class MessageFeatures:
+    """Per-email classification result from classify_message."""
+    # raw (echoed from MessageInfo for SenderGroup construction)
+    from_addr: str
+    from_display: str
+    list_id: Optional[str]    # raw value (not normalized) — needed for SenderGroup display
+    subject: str
+    to_addrs: list[str]       # list[str] matching MessageInfo.to_addrs; set conversion happens in group_classified_messages
+    # classification
+    group_key: str            # "TO:apps+spotify" | "LIST:list.example.com" | "FROM:foo@bar.com"
+    anchor_type: str          # "TO" | "LIST" | "FROM"
+    anchor_tokens: list[str]
+    suggested_destination: Optional[str]
+    recipient_hint: Optional[str]   # debug/carry-forward only; not used in grouping
+    recipient_category: str
+    # intermediate tokens (kept for debugging/future use)
+    domain_tokens: list[str]
+    display_tokens: list[str]
+    subject_tokens: list[str]
+
+
 # ---------------------------------------------------------------------------
 # mmuxer config parsing
 # ---------------------------------------------------------------------------
@@ -677,6 +699,147 @@ def group_uncovered_messages(
     return groups
 
 
+def classify_message(
+    msg: MessageInfo,
+    mydomain: Optional[str],
+    primary_local: Optional[str],
+    sender_index: dict[str, str],
+) -> MessageFeatures:
+    """Classify a single MessageInfo into a MessageFeatures instance.
+
+    Extracts tokens from domain, display name, and subject; detects subaddress
+    anchoring; matches against sender_index for a suggested destination; and
+    assigns a fully-resolved group_key and anchor_type.
+    """
+    # Step 1: subaddress check
+    subaddr_result = detect_subaddress(msg.to_addrs, mydomain)
+    tag_tokens: list[str] = []
+    if subaddr_result is not None:
+        group_key_raw, _condition_str = subaddr_result
+        anchor_type = "TO"
+        local_part = group_key_raw[len("TO:"):]
+        recipient_hint: Optional[str] = local_part.split("+")[0] if "+" in local_part else None
+        group_key = group_key_raw
+        tag = local_part.split("+", 1)[1] if "+" in local_part else ""
+        tag_tokens = re.split(r"[^a-z0-9]+", tag.lower())
+        tag_tokens = [t for t in tag_tokens if t and t not in STOPWORDS]
+    else:
+        anchor_type = ""
+        recipient_hint = None
+        group_key = ""
+
+    # Step 2: recipient category from TO addresses on mydomain
+    recipient_category = ""
+    if mydomain:
+        for addr in msg.to_addrs:
+            addr_lower = addr.lower()
+            if addr_lower.endswith("@" + mydomain.lower()):
+                local = addr_lower.rsplit("@", 1)[0]
+                base_local = local.split("+")[0]
+                if base_local != (primary_local or "").lower() and base_local:
+                    recipient_category = base_local
+                    break
+
+    # Step 3: token extraction
+    sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
+    domain_tokens = extract_domain_tokens(sender_domain)
+    display_tokens = extract_display_tokens(msg.from_display)
+    subject_tokens = extract_subject_tokens(msg.subject) if msg.subject else []
+    strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
+    if tag_tokens:
+        anchor_tokens = tag_tokens + [t for t in (strong or domain_tokens) if t not in tag_tokens]
+    else:
+        anchor_tokens = strong if strong else domain_tokens
+
+    # Step 4: rule matching
+    suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
+
+    # Step 5: group key finalization
+    if anchor_type == "TO":
+        pass  # group_key already set; subaddress takes priority over list_id
+    elif msg.list_id:
+        anchor_type = "LIST"
+        group_key = f"LIST:{_normalize_list_id(msg.list_id)}"
+    else:
+        anchor_type = "FROM"
+        group_key = f"FROM:{msg.from_addr}"
+
+    assert group_key, f"group_key must be non-empty for {msg.from_addr}"
+
+    return MessageFeatures(
+        from_addr=msg.from_addr,
+        from_display=msg.from_display,
+        list_id=msg.list_id,
+        subject=msg.subject,
+        to_addrs=msg.to_addrs,
+        group_key=group_key,
+        anchor_type=anchor_type,
+        anchor_tokens=anchor_tokens,
+        suggested_destination=suggested_destination,
+        recipient_hint=recipient_hint,
+        recipient_category=recipient_category,
+        domain_tokens=domain_tokens,
+        display_tokens=display_tokens,
+        subject_tokens=subject_tokens,
+    )
+
+
+def group_classified_messages(
+    features: list[MessageFeatures],
+) -> list[SenderGroup]:
+    """Group a list of MessageFeatures into SenderGroup objects with cross-links.
+
+    Accumulates features by group_key (first-message-wins for anchor fields),
+    runs a cross-group linking pass between TO and FROM groups sharing anchor
+    tokens, and returns groups sorted descending by count.
+    """
+    groups: dict[str, SenderGroup] = {}
+
+    for feature in features:
+        group_key = feature.group_key
+        if group_key in groups:
+            existing = groups[group_key]
+            existing.count += 1
+            existing.from_addrs.add(feature.from_addr)
+            existing.to_addrs.update(feature.to_addrs)
+            if len(existing.sample_subjects) < 5 and feature.subject not in existing.sample_subjects:
+                existing.sample_subjects.append(feature.subject)
+        else:
+            groups[group_key] = SenderGroup(
+                from_addr=feature.from_addr,
+                from_display=feature.from_display,
+                count=1,
+                sample_subjects=[feature.subject] if feature.subject else [],
+                list_id=feature.list_id,
+                to_addrs=set(feature.to_addrs),
+                from_addrs={feature.from_addr},
+                group_key=group_key,
+                anchor_type=feature.anchor_type,
+                anchor_tokens=feature.anchor_tokens,
+                suggested_destination=feature.suggested_destination,
+                related_group_keys=[],
+                recipient_category=feature.recipient_category,
+            )
+
+    # Cross-group linking pass: TO groups <-> FROM groups sharing anchor tokens
+    to_groups = [g for g in groups.values() if g.anchor_type == "TO"]
+    from_groups = [g for g in groups.values() if g.anchor_type == "FROM"]
+
+    for to_group in to_groups:
+        to_token_set = set(to_group.anchor_tokens)
+        for from_group in from_groups:
+            from_token_set = set(from_group.anchor_tokens)
+            if to_token_set & from_token_set:
+                if from_group.group_key not in to_group.related_group_keys:
+                    to_group.related_group_keys.append(from_group.group_key)
+                if to_group.group_key not in from_group.related_group_keys:
+                    from_group.related_group_keys.append(to_group.group_key)
+
+    result = list(groups.values())
+    result.sort(key=lambda g: g.count, reverse=True)
+    return result
+
+
 def classify_and_group_emails(
     uncovered_emails: list[MessageInfo],
     config: dict,
@@ -698,109 +861,11 @@ def classify_and_group_emails(
     Returns groups sorted descending by count.
     """
     sender_index = build_sender_index(config)
-    groups: dict[str, SenderGroup] = {}
-
-    for msg in uncovered_emails:
-        # Step 1: subaddress check
-        subaddr_result = detect_subaddress(msg.to_addrs, mydomain)
-        tag_tokens: list[str] = []
-        if subaddr_result is not None:
-            group_key_raw, _condition_str = subaddr_result
-            anchor_type = "TO"
-            # recipient_hint: local part before '+', e.g. "TO:apps+spotify" → "apps"
-            local_part = group_key_raw[len("TO:"):]
-            recipient_hint: Optional[str] = local_part.split("+")[0] if "+" in local_part else None
-            group_key = group_key_raw
-            # The tag (after '+') is the primary signal for TO groups
-            tag = local_part.split("+", 1)[1] if "+" in local_part else ""
-            tag_tokens = re.split(r"[^a-z0-9]+", tag.lower())
-            tag_tokens = [t for t in tag_tokens if t and t not in STOPWORDS]
-        else:
-            anchor_type = ""
-            recipient_hint = None
-            group_key = ""  # determined in step 4
-
-        # Extract recipient category from TO addresses on mydomain
-        # (any local part that is not the user's primary inbox address)
-        recipient_category = ""
-        if mydomain:
-            for addr in msg.to_addrs:
-                addr_lower = addr.lower()
-                if addr_lower.endswith("@" + mydomain.lower()):
-                    local = addr_lower.rsplit("@", 1)[0]
-                    # Strip any +tag suffix to get the base local part
-                    base_local = local.split("+")[0]
-                    if base_local != (primary_local or "").lower() and base_local:
-                        recipient_category = base_local
-                        break
-
-        # Step 2: token extraction
-        sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
-        domain_tokens = extract_domain_tokens(sender_domain)
-        display_tokens = extract_display_tokens(msg.from_display)
-        subject_tokens = extract_subject_tokens(msg.subject) if msg.subject else []
-        strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
-        # For TO groups: tag tokens lead, sender tokens follow as corroboration
-        if tag_tokens:
-            anchor_tokens = tag_tokens + [t for t in (strong or domain_tokens) if t not in tag_tokens]
-        else:
-            anchor_tokens = strong if strong else domain_tokens
-
-        # Step 3: rule matching
-        suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
-
-        # Step 4: group key assignment
-        if anchor_type == "TO":
-            pass  # group_key already set
-        elif msg.list_id:
-            anchor_type = "LIST"
-            group_key = f"LIST:{_normalize_list_id(msg.list_id)}"
-        else:
-            anchor_type = "FROM"
-            group_key = f"FROM:{msg.from_addr}"
-
-        # Step 5: group accumulation
-        if group_key in groups:
-            existing = groups[group_key]
-            existing.count += 1
-            existing.from_addrs.add(msg.from_addr)
-            existing.to_addrs.update(msg.to_addrs)
-            if len(existing.sample_subjects) < 5 and msg.subject not in existing.sample_subjects:
-                existing.sample_subjects.append(msg.subject)
-        else:
-            groups[group_key] = SenderGroup(
-                from_addr=msg.from_addr,
-                from_display=msg.from_display,
-                count=1,
-                sample_subjects=[msg.subject] if msg.subject else [],
-                list_id=msg.list_id,
-                to_addrs=set(msg.to_addrs),
-                from_addrs={msg.from_addr},
-                group_key=group_key,
-                anchor_type=anchor_type,
-                anchor_tokens=anchor_tokens,
-                suggested_destination=suggested_destination,
-                related_group_keys=[],
-                recipient_category=recipient_category,
-            )
-
-    # Cross-group linking pass: TO groups ↔ FROM groups sharing anchor tokens
-    to_groups = [g for g in groups.values() if g.anchor_type == "TO"]
-    from_groups = [g for g in groups.values() if g.anchor_type == "FROM"]
-
-    for to_group in to_groups:
-        to_token_set = set(to_group.anchor_tokens)
-        for from_group in from_groups:
-            from_token_set = set(from_group.anchor_tokens)
-            if to_token_set & from_token_set:
-                if from_group.group_key not in to_group.related_group_keys:
-                    to_group.related_group_keys.append(from_group.group_key)
-                if to_group.group_key not in from_group.related_group_keys:
-                    from_group.related_group_keys.append(to_group.group_key)
-
-    result = list(groups.values())
-    result.sort(key=lambda g: g.count, reverse=True)
-    return result
+    features = [
+        classify_message(msg, mydomain, primary_local, sender_index)
+        for msg in uncovered_emails
+    ]
+    return group_classified_messages(features)
 
 
 # ---------------------------------------------------------------------------
