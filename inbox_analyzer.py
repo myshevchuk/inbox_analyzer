@@ -22,7 +22,7 @@ import imaplib
 import re
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 from typing import Optional
 
@@ -961,14 +961,11 @@ def interactive_session(
 
             if debug:
                 print(color("  [debug]", "dim"))
-                print(color(f"    group_key:            {group.group_key!r}", "dim"))
-                print(color(f"    anchor_type:          {group.anchor_type!r}", "dim"))
-                print(color(f"    anchor_tokens:        {group.anchor_tokens}", "dim"))
-                print(color(f"    recipient_category:   {group.recipient_category!r}", "dim"))
-                print(color(f"    suggested_destination:{group.suggested_destination!r}", "dim"))
-                print(color(f"    from_addrs:           {sorted(group.from_addrs)}", "dim"))
-                print(color(f"    to_addrs:             {sorted(group.to_addrs)}", "dim"))
-                print(color(f"    related_group_keys:   {group.related_group_keys}", "dim"))
+                for f in dataclass_fields(group):
+                    val = getattr(group, f.name)
+                    if isinstance(val, (set, list)):
+                        val = sorted(val) if isinstance(val, set) else val
+                    print(color(f"    {f.name + ':':<26} {val!r}", "dim"))
 
             suggestion = suggest_rule(group)
             print(f"\n  {color('Suggested rule:', 'green')}")
