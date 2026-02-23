@@ -614,6 +614,9 @@ def classify_message(
     assigns a fully-resolved group_key and anchor_type.
     """
     # Step 1: subaddress check — first match wins
+    # NOTE: only TO addresses are checked; CC is not yet in MessageInfo.
+    # Multiple subaddressed TO addresses is a theoretical edge case and
+    # is handled by taking the first match.
     subaddr_result = None
     if mydomain:
         for addr in msg.to_addrs:
