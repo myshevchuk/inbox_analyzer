@@ -499,6 +499,36 @@ def test_suggest_rule_multi_sender():
 # Integration test: end-to-end pipeline without IMAP
 # ---------------------------------------------------------------------------
 
+def test_to_group_tag_drives_anchor_tokens():
+    """Tag part of subaddress (apps+spotify → 'spotify') must appear in anchor_tokens."""
+    msg = make_msg(
+        from_addr="news@unrelated-domain.com",
+        from_display="Some Newsletter",
+        to_addrs=["apps+spotify@mydomain.com"],
+    )
+    config = make_config()
+    result = ia.classify_and_group_emails([msg], config, "mydomain.com")
+    assert len(result) == 1
+    group = result[0]
+    assert group.anchor_type == "TO"
+    assert "spotify" in group.anchor_tokens
+
+
+def test_to_group_tag_matches_suggested_destination():
+    """Tag token should match sender_index even when sender domain is unrelated."""
+    msg = make_msg(
+        from_addr="noreply@unrelated-domain.com",
+        from_display="Unrelated Sender",
+        to_addrs=["apps+spotify@mydomain.com"],
+    )
+    config = make_config(rules=[
+        {"move_to": "Apps.Spotify", "condition": {"FROM": "noreply@spotify.com"}},
+    ])
+    result = ia.classify_and_group_emails([msg], config, "mydomain.com")
+    assert len(result) == 1
+    assert result[0].suggested_destination == "Apps.Spotify"
+
+
 def test_pipeline_end_to_end():
     msgs = [
         make_msg(

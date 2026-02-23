@@ -701,6 +701,7 @@ def classify_and_group_emails(
     for msg in uncovered_emails:
         # Step 1: subaddress check
         subaddr_result = detect_subaddress(msg.to_addrs, mydomain)
+        tag_tokens: list[str] = []
         if subaddr_result is not None:
             group_key_raw, _condition_str = subaddr_result
             anchor_type = "TO"
@@ -708,6 +709,10 @@ def classify_and_group_emails(
             local_part = group_key_raw[len("TO:"):]
             recipient_hint: Optional[str] = local_part.split("+")[0] if "+" in local_part else None
             group_key = group_key_raw
+            # The tag (after '+') is the primary signal for TO groups
+            tag = local_part.split("+", 1)[1] if "+" in local_part else ""
+            tag_tokens = re.split(r"[^a-z0-9]+", tag.lower())
+            tag_tokens = [t for t in tag_tokens if t and t not in STOPWORDS]
         else:
             anchor_type = ""
             recipient_hint = None
@@ -719,7 +724,11 @@ def classify_and_group_emails(
         display_tokens = extract_display_tokens(msg.from_display)
         subject_tokens = extract_subject_tokens(msg.subject) if msg.subject else []
         strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
-        anchor_tokens = strong if strong else domain_tokens
+        # For TO groups: tag tokens lead, sender tokens follow as corroboration
+        if tag_tokens:
+            anchor_tokens = tag_tokens + [t for t in (strong or domain_tokens) if t not in tag_tokens]
+        else:
+            anchor_tokens = strong if strong else domain_tokens
 
         # Step 3: rule matching
         suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
