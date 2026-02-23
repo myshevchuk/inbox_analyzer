@@ -625,9 +625,7 @@ def classify_message(
         anchor_type = "TO"
         recipient_hint = subaddr_result[0]
         group_key = "TO:" + "+".join(subaddr_result)
-        tag = "+".join(subaddr_result[1:])
-        tag_tokens = re.split(r"[^a-z0-9]+", tag.lower())
-        tag_tokens = [t for t in tag_tokens if t and t not in STOPWORDS]
+        tag_tokens = list(subaddr_result[1:])
     else:
         anchor_type = ""
         recipient_hint = None
