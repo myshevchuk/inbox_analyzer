@@ -77,6 +77,11 @@ class SenderGroup:
     list_id: Optional[str] = None
     to_addrs: set[str] = field(default_factory=set)
     from_addrs: set[str] = field(default_factory=set)  # all senders in group
+    group_key: str = ""                    # unique key: "TO:local+tag" or "FROM:addr" or "LIST:list_id"
+    anchor_type: str = ""                  # "TO", "FROM", "LIST"
+    anchor_tokens: list[str] = field(default_factory=list)  # tokens for rule matching
+    suggested_destination: Optional[str] = None             # matched folder from sender_index
+    related_group_keys: list[str] = field(default_factory=list)  # keys of related groups
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +226,44 @@ def extract_existing_folders(config: dict) -> set[str]:
             folders.add(folder)
     return folders
 
+
+def extract_mydomain(config: dict) -> Optional[str]:
+    """Extract the domain part from the username in config settings.
+
+    Returns the domain (part after '@') from config['settings']['username'],
+    or None if the settings key is missing, the username key is missing, or
+    the username contains no '@'.
+    """
+    settings = config.get("settings")
+    if not settings:
+        return None
+    username = settings.get("username")
+    if not username or "@" not in username:
+        return None
+    return username.split("@", 1)[1]
+
+
+def build_sender_index(config: dict) -> dict[str, str]:
+    """Build a mapping from lowercase folder leaf name to full folder path.
+
+    Iterates over rules with a move_to key and extracts the leaf segment
+    (the last dot-separated component of the folder path).  The leaf is
+    lowercased and used as the key.  On collision (two folders share the
+    same lowercase leaf), the alphabetically first full path is kept.
+
+    Example:
+        rules with move_to values ["Apps.Spotify", "Apps.Music Production"]
+        ->  {"spotify": "Apps.Spotify", "music production": "Apps.Music Production"}
+    """
+    index: dict[str, str] = {}
+    for rule in config.get("rules", []):
+        folder = rule.get("move_to")
+        if not folder:
+            continue
+        leaf = folder.split(".")[-1].lower()
+        if leaf not in index or folder < index[leaf]:
+            index[leaf] = folder
+    return index
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +453,137 @@ def _coverage_reason(msg: MessageInfo, covered: dict) -> Optional[str]:
     return None
 
 
+STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "has", "have", "had", "do", "does", "did", "will", "would", "can",
+    "could", "your", "you", "my", "our", "we", "us", "me", "he", "she",
+    "it", "they", "them", "this", "that", "these", "new", "re", "fw",
+    "fwd", "no-reply", "noreply", "newsletter", "update", "notification",
+    "alert", "info", "hello", "hi", "dear", "please", "thanks", "welcome",
+    "confirm", "verify", "action", "required", "notifications",
+})
+
+
+def extract_domain_tokens(domain: str) -> list[str]:
+    """Extract meaningful tokens from a domain name, skipping known TLDs."""
+    known_tlds = {"com", "net", "org", "io", "co", "uk", "de", "fr", "eu", "app", "dev", "ai", "email", "mail"}
+    parts = domain.lower().split(".")
+    meaningful = [p for p in parts if p and p not in known_tlds]
+    tokens = meaningful[-1:]
+    return [t for t in tokens if t and t not in STOPWORDS]
+
+
+def extract_display_tokens(display_name: str) -> list[str]:
+    """Extract meaningful tokens from a display name."""
+    tokens = re.split(r'[^a-z0-9]+', display_name.lower())
+    return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
+
+
+def extract_subject_tokens(subject: str) -> list[str]:
+    """Extract meaningful tokens from a subject line."""
+    tokens = re.split(r'[^a-z0-9]+', subject.lower())
+    return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
+
+
+def find_strong_signals(
+    domain_tokens: list[str],
+    display_tokens: list[str],
+    subject_tokens: list[str],
+) -> list[str]:
+    """Return tokens that appear in at least 2 of the 3 input lists."""
+    domain_set = set(domain_tokens)
+    display_set = set(display_tokens)
+    subject_set = set(subject_tokens)
+    strong = (domain_set & display_set) | (domain_set & subject_set) | (display_set & subject_set)
+    seen: set[str] = set()
+    result = []
+    for t in domain_tokens + display_tokens:
+        if t in strong and t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result
+
+
+def match_tokens_to_rule(
+    tokens: list[str],
+    sender_index: dict[str, str],
+    recipient_hint: Optional[str] = None,
+) -> Optional[str]:
+    """Return the folder path from sender_index that best matches tokens.
+
+    For each key in sender_index, split it into sub-tokens by non-alphanumeric
+    characters and count how many input tokens appear in those sub-tokens.
+    The key with the highest count (score > 0) wins.
+
+    Tie-breaking (equal scores):
+    1. Prefer the folder whose category (everything before the last '.') matches
+       recipient_hint (case-insensitive).
+    2. Alphabetical on folder path as final tiebreaker.
+    """
+    if not tokens:
+        return None
+
+    token_set = set(tokens)
+    best_folder: Optional[str] = None
+    best_score = 0
+
+    for key, folder in sender_index.items():
+        sub_tokens = set(re.split(r"[^a-z0-9]+", key.lower()))
+        sub_tokens.discard("")
+        score = len(token_set & sub_tokens)
+        if score == 0:
+            continue
+
+        if score > best_score:
+            best_score = score
+            best_folder = folder
+        elif score == best_score:
+            # Tie-breaking: recipient_hint category match, then alphabetical
+            assert best_folder is not None
+            current_category = best_folder.rsplit(".", 1)[0].lower() if "." in best_folder else best_folder.lower()
+            candidate_category = folder.rsplit(".", 1)[0].lower() if "." in folder else folder.lower()
+            hint = recipient_hint.lower() if recipient_hint else None
+
+            current_hint_match = hint is not None and current_category == hint
+            candidate_hint_match = hint is not None and candidate_category == hint
+
+            if candidate_hint_match and not current_hint_match:
+                best_folder = folder
+            elif not candidate_hint_match and current_hint_match:
+                pass  # keep current
+            else:
+                # Both match hint or neither does — alphabetical
+                if folder < best_folder:
+                    best_folder = folder
+
+    return best_folder
+
+
+def detect_subaddress(to_addrs: list[str], mydomain: Optional[str]) -> tuple[str, str] | None:
+    """
+    Detect a subaddressed TO recipient on the user's own domain.
+
+    For each address in to_addrs, checks whether it ends with @mydomain and
+    whether its local part contains '+'. If found, returns a tuple of:
+      - group_key:        "TO:<local_part>"  e.g. "TO:apps+spotify"
+      - condition_string: "TO: <local_part>" e.g. "TO: apps+spotify"
+
+    Returns None if mydomain is None, to_addrs is empty, or no subaddressed
+    address on mydomain is found.
+    """
+    if mydomain is None:
+        return None
+    mydomain_lower = mydomain.lower()
+    for addr in to_addrs:
+        addr_lower = addr.lower()
+        if addr_lower.endswith("@" + mydomain_lower):
+            local_part = addr_lower.rsplit("@", 1)[0]
+            if "+" in local_part:
+                return (f"TO:{local_part}", f"TO: {local_part}")
+    return None
+
+
 def group_uncovered_messages(
     messages: list[MessageInfo],
     covered: dict,
@@ -424,6 +598,9 @@ def group_uncovered_messages(
     Matching TO addresses are stripped from each SenderGroup so that
     suggest_rule uses the sender (FROM) rather than the TO subaddress,
     avoiding suggestions that duplicate already-existing ignored rules.
+
+    .. deprecated::
+        Use classify_and_group_emails() instead. This function is kept for reference.
     """
     uncovered = []
     for m in messages:
@@ -499,12 +676,116 @@ def group_uncovered_messages(
     return groups
 
 
+def classify_and_group_emails(
+    uncovered_emails: list[MessageInfo],
+    config: dict,
+    mydomain: Optional[str],
+) -> list[SenderGroup]:
+    """
+    Classify and group uncovered emails into SenderGroup objects with enriched
+    metadata: group key, anchor type, anchor tokens, suggested destination, and
+    cross-group relationships.
+
+    Per-email pipeline:
+    1. Subaddress check — detect TO subaddressing on mydomain
+    2. Token extraction — domain, display, subject tokens combined via find_strong_signals
+    3. Rule matching — look up anchor_tokens in sender_index for a suggested destination
+    4. Group key assignment — based on subaddress, list_id, or sender address
+    5. Group accumulation — merge into existing group or create a new one
+    After loop: cross-group linking pass between TO and FROM groups sharing tokens.
+    Returns groups sorted descending by count.
+    """
+    sender_index = build_sender_index(config)
+    groups: dict[str, SenderGroup] = {}
+
+    for msg in uncovered_emails:
+        # Step 1: subaddress check
+        subaddr_result = detect_subaddress(msg.to_addrs, mydomain)
+        if subaddr_result is not None:
+            group_key_raw, _condition_str = subaddr_result
+            anchor_type = "TO"
+            # recipient_hint: local part before '+', e.g. "TO:apps+spotify" → "apps"
+            local_part = group_key_raw[len("TO:"):]
+            recipient_hint: Optional[str] = local_part.split("+")[0] if "+" in local_part else None
+            group_key = group_key_raw
+        else:
+            anchor_type = ""
+            recipient_hint = None
+            group_key = ""  # determined in step 4
+
+        # Step 2: token extraction
+        sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
+        domain_tokens = extract_domain_tokens(sender_domain)
+        display_tokens = extract_display_tokens(msg.from_display)
+        subject_tokens = extract_subject_tokens(msg.subject) if msg.subject else []
+        strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
+        anchor_tokens = strong if strong else domain_tokens
+
+        # Step 3: rule matching
+        suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
+
+        # Step 4: group key assignment
+        if anchor_type == "TO":
+            pass  # group_key already set
+        elif msg.list_id:
+            anchor_type = "LIST"
+            group_key = f"LIST:{_normalize_list_id(msg.list_id)}"
+        else:
+            anchor_type = "FROM"
+            group_key = f"FROM:{msg.from_addr}"
+
+        # Step 5: group accumulation
+        if group_key in groups:
+            existing = groups[group_key]
+            existing.count += 1
+            existing.from_addrs.add(msg.from_addr)
+            existing.to_addrs.update(msg.to_addrs)
+            if len(existing.sample_subjects) < 5 and msg.subject not in existing.sample_subjects:
+                existing.sample_subjects.append(msg.subject)
+        else:
+            groups[group_key] = SenderGroup(
+                from_addr=msg.from_addr,
+                from_display=msg.from_display,
+                count=1,
+                sample_subjects=[msg.subject] if msg.subject else [],
+                list_id=msg.list_id,
+                to_addrs=set(msg.to_addrs),
+                from_addrs={msg.from_addr},
+                group_key=group_key,
+                anchor_type=anchor_type,
+                anchor_tokens=anchor_tokens,
+                suggested_destination=suggested_destination,
+                related_group_keys=[],
+            )
+
+    # Cross-group linking pass: TO groups ↔ FROM groups sharing anchor tokens
+    to_groups = [g for g in groups.values() if g.anchor_type == "TO"]
+    from_groups = [g for g in groups.values() if g.anchor_type == "FROM"]
+
+    for to_group in to_groups:
+        to_token_set = set(to_group.anchor_tokens)
+        for from_group in from_groups:
+            from_token_set = set(from_group.anchor_tokens)
+            if to_token_set & from_token_set:
+                if from_group.group_key not in to_group.related_group_keys:
+                    to_group.related_group_keys.append(from_group.group_key)
+                if to_group.group_key not in from_group.related_group_keys:
+                    from_group.related_group_keys.append(to_group.group_key)
+
+    result = list(groups.values())
+    result.sort(key=lambda g: g.count, reverse=True)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Rule suggestion logic
 # ---------------------------------------------------------------------------
 
 def suggest_folder_name(group: SenderGroup) -> str:
     """Heuristically suggest a folder name based on the sender info."""
+    if group.suggested_destination:
+        return group.suggested_destination
+
     addr = group.from_addr
     display = group.from_display
     if not addr and not display:
@@ -595,6 +876,10 @@ def interactive_session(
 
     accepted_rules: list[str] = []
     total = len(groups)
+    merged_keys: set[str] = set()
+
+    # Build a lookup map from group_key to SenderGroup for merge support
+    groups_by_key: dict[str, SenderGroup] = {g.group_key: g for g in groups if g.group_key}
 
     print(f"\n{'=' * 60}")
     print(color(f"  Found {total} uncovered sender groups", "bold"))
@@ -609,6 +894,9 @@ def interactive_session(
 
     try:
         for idx, group in enumerate(groups, 1):
+            if group.group_key in merged_keys:
+                continue
+
             print(f"{color(f'[{idx}/{total}]', 'bold')} {color(group.from_addr, 'cyan')}")
             if group.from_display:
                 print(f"  Display name: {group.from_display}")
@@ -622,6 +910,10 @@ def interactive_session(
             print(f"  Sample subjects:")
             for subj in group.sample_subjects[:3]:
                 print(f"    • {subj[:80]}")
+
+            # Show related group keys if any
+            if group.related_group_keys:
+                print(f"  Related groups: {', '.join(group.related_group_keys)}")
 
             suggestion = suggest_rule(group)
             print(f"\n  {color('Suggested rule:', 'green')}")
@@ -637,8 +929,12 @@ def interactive_session(
                 n = len(related)
                 nums = "1" if n == 1 else f"1-{n}"
                 related_hint = f" / [{color(nums, 'yellow')}] use related"
+
+            has_related_groups = bool(group.related_group_keys)
+            merge_hint = f" / [{color('m', 'cyan')}]erge" if has_related_groups else ""
+
             while True:
-                choice = input(f"\n  [{color('a', 'green')}/↵]ccept / [{color('f', 'yellow')}]older{related_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
+                choice = input(f"\n  [{color('a', 'green')}/↵]ccept / [{color('f', 'yellow')}]older{related_hint}{merge_hint} / [{color('s', 'dim')}]kip / [{color('q', 'red')}]uit: ").strip().lower()
                 if choice in ("a", "accept", ""):
                     accepted_rules.append(suggestion)
                     print(f"  {color('✓ Accepted', 'green')}")
@@ -658,6 +954,53 @@ def interactive_session(
                         print("  No folder entered, using suggestion.")
                         accepted_rules.append(suggestion)
                     break
+                elif choice in ("m", "merge") and has_related_groups:
+                    folder = suggest_folder_name(group)
+                    # Extract condition lines from suggestion (everything after "condition:")
+                    current_condition_lines = []
+                    in_condition = False
+                    for line in suggestion.split("\n"):
+                        stripped = line.strip()
+                        if stripped == "condition:":
+                            in_condition = True
+                            continue
+                        if in_condition:
+                            current_condition_lines.append(f"          {stripped}")
+
+                    # Build ANY conditions list
+                    any_items: list[str] = []
+                    any_items.extend(current_condition_lines)
+
+                    for rkey in group.related_group_keys:
+                        related_group = groups_by_key.get(rkey)
+                        if related_group is not None:
+                            rel_suggestion = suggest_rule(related_group)
+                            in_cond = False
+                            for line in rel_suggestion.split("\n"):
+                                stripped = line.strip()
+                                if stripped == "condition:":
+                                    in_cond = True
+                                    continue
+                                if in_cond:
+                                    any_items.append(f"          {stripped}")
+
+                    merged_lines = [
+                        f"  - move_to: {folder}",
+                        f"    condition:",
+                        f"      ANY:",
+                    ]
+                    for item in any_items:
+                        merged_lines.append(f"        - {item.strip()}")
+
+                    merged_rule = "\n".join(merged_lines)
+                    accepted_rules.append(merged_rule)
+
+                    # Mark related groups as merged
+                    for rkey in group.related_group_keys:
+                        merged_keys.add(rkey)
+
+                    print(f"  {color('✓ Merged and accepted', 'green')}")
+                    break
                 elif choice in ("s", "skip"):
                     print(f"  {color('— Skipped', 'dim')}")
                     break
@@ -674,6 +1017,8 @@ def interactive_session(
                     break
                 else:
                     opts = "a, f, s, q" + (f", or 1-{len(related)}" if related else "")
+                    if has_related_groups:
+                        opts += ", or m"
                     print(f"  Please enter {opts}.")
 
             print()
@@ -849,7 +1194,29 @@ Examples:
         sys.exit(0)
 
     # Analyze
-    all_groups = group_uncovered_messages(messages, covered, ignore_to_patterns, debug=args.debug)
+    # Filter uncovered messages
+    uncovered = []
+    for m in messages:
+        reason = _coverage_reason(m, covered)
+        if reason:
+            if args.debug:
+                print(f"  [debug] covered:   {m.from_addr} | {reason}")
+        else:
+            if args.debug:
+                print(f"  [debug] uncovered: {m.from_addr}")
+            uncovered.append(m)
+    print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
+
+    mydomain = extract_mydomain(config)
+    all_groups = classify_and_group_emails(uncovered, config, mydomain)
+
+    # Strip ignored TO patterns from group to_addrs
+    if ignore_to_patterns:
+        for g in all_groups:
+            g.to_addrs = {
+                t for t in g.to_addrs
+                if not any(pat in t.lower() for pat in ignore_to_patterns)
+            }
 
     # Filter by minimum count
     groups = [g for g in all_groups if g.count >= args.min_count]
