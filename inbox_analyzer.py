@@ -889,11 +889,14 @@ def interactive_session(
 
     if debug:
         print(color("  [debug] Group summary:", "dim"))
+        print(color(f"    {'#':>3}  {'anchor':<40} {'n':>4}  destination / related", "dim"))
+        print(color(f"    {'-'*3}  {'-'*40} {'-'*4}  {'-'*30}", "dim"))
         for i, g in enumerate(groups, 1):
             anchor = f"{g.anchor_type}:{g.group_key}" if g.anchor_type else g.group_key or "?"
-            dest = f" -> {g.suggested_destination}" if g.suggested_destination else ""
-            related = f" (related: {', '.join(g.related_group_keys)})" if g.related_group_keys else ""
-            print(color(f"    [{i:2}] {anchor:<40} n={g.count}{dest}{related}", "dim"))
+            dest = f"-> {g.suggested_destination}" if g.suggested_destination else ""
+            related = f"(related: {', '.join(g.related_group_keys)})" if g.related_group_keys else ""
+            suffix = dest or related
+            print(color(f"    {i:>3}  {anchor:<40} {g.count:>4}  {suffix}", "dim"))
         print()
 
     print("For each group, you can:")
