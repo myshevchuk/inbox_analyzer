@@ -583,21 +583,18 @@ def match_tokens_to_rule(
     return best_folder
 
 
-def extract_subaddress(addr: str, mydomain: str) -> tuple[str, str] | None:
-    """Extract subaddress info from a single TO address.
+def extract_subaddress(addr: str, mydomain: str) -> tuple[str, ...] | None:
+    """Extract subaddress parts from a single TO address.
 
-    Checks whether addr ends with @mydomain and its local part contains '+'.
-    If so, returns:
-      - group_key:        "TO:<local_part>"  e.g. "TO:apps+spotify"
-      - condition_string: "TO: <local_part>" e.g. "TO: apps+spotify"
-
-    Returns None if addr is not on mydomain or has no subaddress tag.
+    Returns the local part split at '+' as a tuple, e.g. ("apps", "spotify")
+    for apps+spotify@mydomain. Returns None if addr is not on mydomain or
+    has no subaddress tag.
     """
     addr_lower = addr.lower()
     if addr_lower.endswith("@" + mydomain.lower()):
         local_part = addr_lower.rsplit("@", 1)[0]
         if "+" in local_part:
-            return (f"TO:{local_part}", f"TO: {local_part}")
+            return tuple(local_part.split("+"))
     return None
 
 
@@ -625,12 +622,10 @@ def classify_message(
                 break
     tag_tokens: list[str] = []
     if subaddr_result is not None:
-        group_key_raw, _condition_str = subaddr_result
         anchor_type = "TO"
-        local_part = group_key_raw[len("TO:"):]
-        recipient_hint: Optional[str] = local_part.split("+")[0] if "+" in local_part else None
-        group_key = group_key_raw
-        tag = local_part.split("+", 1)[1] if "+" in local_part else ""
+        recipient_hint = subaddr_result[0]
+        group_key = "TO:" + "+".join(subaddr_result)
+        tag = "+".join(subaddr_result[1:])
         tag_tokens = re.split(r"[^a-z0-9]+", tag.lower())
         tag_tokens = [t for t in tag_tokens if t and t not in STOPWORDS]
     else:
