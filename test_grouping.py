@@ -499,6 +499,19 @@ def test_suggest_rule_multi_sender():
 # Integration test: end-to-end pipeline without IMAP
 # ---------------------------------------------------------------------------
 
+def test_suggest_folder_name_to_group_no_destination():
+    """TO group without suggested_destination uses prefix.tag from subaddress."""
+    group = ia.SenderGroup(
+        from_addr="noreply@unrelated.com",
+        from_display="Some Sender",
+        count=1,
+        sample_subjects=[],
+        group_key="TO:apps+spotify",
+        anchor_type="TO",
+    )
+    assert ia.suggest_folder_name(group) == "Apps.Spotify"
+
+
 def test_to_group_tag_drives_anchor_tokens():
     """Tag part of subaddress (apps+spotify → 'spotify') must appear in anchor_tokens."""
     msg = make_msg(

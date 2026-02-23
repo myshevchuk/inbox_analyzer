@@ -795,6 +795,12 @@ def suggest_folder_name(group: SenderGroup) -> str:
     if group.suggested_destination:
         return group.suggested_destination
 
+    # For TO groups: derive "Prefix.Tag" from the subaddress (e.g. apps+spotify → Apps.Spotify)
+    if group.anchor_type == "TO" and "+" in group.group_key:
+        local_part = group.group_key[len("TO:"):]  # "apps+spotify"
+        prefix, tag = local_part.split("+", 1)
+        return f"{prefix.capitalize()}.{tag.capitalize()}"
+
     addr = group.from_addr
     display = group.from_display
     if not addr and not display:
