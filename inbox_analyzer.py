@@ -610,16 +610,15 @@ def classify_message(
     assigns a fully-resolved group_key and anchor_type.
     """
 
+    # Step 1: scan TO addresses for subaddress and recipient category in one pass.
+    # NOTE: only TO addresses are checked; CC is not yet in MessageInfo.
+    # Multiple subaddressed TO addresses is a theoretical edge case and
+    # is handled by taking the first match.
     anchor_type = ""
     group_key = ""
     recipient_category = ""
     recipient_hint = None
     tag_tokens: list[str] = []
-
-    # Step 1: scan TO addresses for subaddress and recipient category in one pass.
-    # NOTE: only TO addresses are checked; CC is not yet in MessageInfo.
-    # Multiple subaddressed TO addresses is a theoretical edge case and
-    # is handled by taking the first match.
     if mydomain:
         mydomain_lower = mydomain.lower()
         primary_lower = (primary_local or "").lower()
@@ -639,21 +638,19 @@ def classify_message(
             if anchor_type and recipient_category:
                 break
 
-    # Step 3: token extraction
+    # Step 2: token extraction
     sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
     domain_tokens = extract_domain_tokens(sender_domain)
     display_tokens = tokenize(msg.from_display)
     subject_tokens = tokenize(msg.subject) if msg.subject else []
     strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
-    if tag_tokens:
-        anchor_tokens = tag_tokens + [t for t in (strong or domain_tokens) if t not in tag_tokens]
-    else:
-        anchor_tokens = strong if strong else domain_tokens
+    base = strong or domain_tokens
+    anchor_tokens = tag_tokens + [t for t in base if t not in tag_tokens] if tag_tokens else base
 
-    # Step 4: rule matching
+    # Step 3: rule matching
     suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
 
-    # Step 5: group key finalization
+    # Step 4: group key finalization
     if anchor_type == "TO":
         pass  # group_key already set; subaddress takes priority over list_id
     elif msg.list_id:
