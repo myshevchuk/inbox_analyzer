@@ -99,7 +99,7 @@ class MessageFeatures:
     anchor_type: str          # "TO" | "LIST" | "FROM"
     anchor_tokens: list[str]
     suggested_destination: Optional[str]
-    recipient_hint: Optional[str]   # debug/carry-forward only; not used in grouping
+    debug_recipient_hint: Optional[str]
     recipient_category: str
     # intermediate tokens (kept for debugging/future use)
     domain_tokens: list[str]
@@ -672,7 +672,7 @@ def classify_message(
         anchor_type=anchor_type,
         anchor_tokens=anchor_tokens,
         suggested_destination=suggested_destination,
-        recipient_hint=recipient_hint,
+        debug_recipient_hint=recipient_hint,
         recipient_category=recipient_category,
         domain_tokens=domain_tokens,
         display_tokens=display_tokens,
