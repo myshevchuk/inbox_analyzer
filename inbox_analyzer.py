@@ -864,6 +864,7 @@ def interactive_session(
     existing_folders: set[str],
     rule_index: list[tuple[str, set[str], set[str]]],
     output_file: Optional[str] = None,
+    debug: bool = False,
 ):
     """
     Walk through each sender group interactively.
@@ -885,6 +886,16 @@ def interactive_session(
     print(color(f"  Found {total} uncovered sender groups", "bold"))
     print(f"{'=' * 60}")
     print()
+
+    if debug:
+        print(color("  [debug] Group summary:", "dim"))
+        for i, g in enumerate(groups, 1):
+            anchor = f"{g.anchor_type}:{g.group_key}" if g.anchor_type else g.group_key or "?"
+            dest = f" -> {g.suggested_destination}" if g.suggested_destination else ""
+            related = f" (related: {', '.join(g.related_group_keys)})" if g.related_group_keys else ""
+            print(color(f"    [{i:2}] {anchor:<40} n={g.count}{dest}{related}", "dim"))
+        print()
+
     print("For each group, you can:")
     print(f"  {color('a', 'green')}ccept  — use the suggested rule as-is")
     print(f"  {color('f', 'yellow')}older  — accept but change the folder name")
@@ -1229,7 +1240,7 @@ Examples:
 
     # Interactive rule suggestion
     rule_index = build_rule_index(config)
-    interactive_session(groups, existing_folders, rule_index, output_file=args.output)
+    interactive_session(groups, existing_folders, rule_index, output_file=args.output, debug=args.debug)
 
 
 if __name__ == "__main__":
