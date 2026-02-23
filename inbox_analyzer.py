@@ -583,27 +583,21 @@ def match_tokens_to_rule(
     return best_folder
 
 
-def detect_subaddress(to_addrs: list[str], mydomain: Optional[str]) -> tuple[str, str] | None:
-    """
-    Detect a subaddressed TO recipient on the user's own domain.
+def extract_subaddress(addr: str, mydomain: str) -> tuple[str, str] | None:
+    """Extract subaddress info from a single TO address.
 
-    For each address in to_addrs, checks whether it ends with @mydomain and
-    whether its local part contains '+'. If found, returns a tuple of:
+    Checks whether addr ends with @mydomain and its local part contains '+'.
+    If so, returns:
       - group_key:        "TO:<local_part>"  e.g. "TO:apps+spotify"
       - condition_string: "TO: <local_part>" e.g. "TO: apps+spotify"
 
-    Returns None if mydomain is None, to_addrs is empty, or no subaddressed
-    address on mydomain is found.
+    Returns None if addr is not on mydomain or has no subaddress tag.
     """
-    if mydomain is None:
-        return None
-    mydomain_lower = mydomain.lower()
-    for addr in to_addrs:
-        addr_lower = addr.lower()
-        if addr_lower.endswith("@" + mydomain_lower):
-            local_part = addr_lower.rsplit("@", 1)[0]
-            if "+" in local_part:
-                return (f"TO:{local_part}", f"TO: {local_part}")
+    addr_lower = addr.lower()
+    if addr_lower.endswith("@" + mydomain.lower()):
+        local_part = addr_lower.rsplit("@", 1)[0]
+        if "+" in local_part:
+            return (f"TO:{local_part}", f"TO: {local_part}")
     return None
 
 
@@ -619,8 +613,13 @@ def classify_message(
     anchoring; matches against sender_index for a suggested destination; and
     assigns a fully-resolved group_key and anchor_type.
     """
-    # Step 1: subaddress check
-    subaddr_result = detect_subaddress(msg.to_addrs, mydomain)
+    # Step 1: subaddress check — first match wins
+    subaddr_result = None
+    if mydomain:
+        for addr in msg.to_addrs:
+            subaddr_result = extract_subaddress(addr, mydomain)
+            if subaddr_result is not None:
+                break
     tag_tokens: list[str] = []
     if subaddr_result is not None:
         group_key_raw, _condition_str = subaddr_result
