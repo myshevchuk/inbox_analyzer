@@ -488,25 +488,37 @@ STOPWORDS = frozenset({
 })
 
 
+_KNOWN_TLDS = {
+    # generic
+    "com", "net", "org", "edu", "gov", "mil", "int", "biz", "info", "pro",
+    "name", "mobi", "coop", "aero", "jobs", "travel", "museum",
+    # new generic
+    "io", "co", "ai", "app", "dev", "cloud", "online", "site", "web",
+    "store", "shop", "blog", "news", "media", "tech", "digital", "social",
+    "group", "team", "agency", "studio", "design", "space", "zone", "works",
+    "solutions", "services", "systems", "network", "company", "global",
+    "world", "live", "plus", "pro", "xyz", "top", "club", "tools", "fun",
+    # email infra
+    "email", "mail",
+    # EU and European national
+    "eu", "uk", "de", "fr", "it", "es", "nl", "pl", "se", "no", "dk",
+    "fi", "pt", "be", "at", "ch", "cz", "sk", "hu", "ro", "bg", "hr",
+    "si", "lt", "lv", "ee", "ie", "lu", "is", "gr", "ua",
+    # other common national
+    "us", "ca", "au", "nz", "jp", "cn", "ru", "br", "in", "mx",
+}
+
+
+def tokenize(text: str) -> list[str]:
+    """Split text into meaningful lowercase tokens, filtering stopwords."""
+    tokens = re.split(r'[^a-z0-9]+', text.lower())
+    return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
+
+
 def extract_domain_tokens(domain: str) -> list[str]:
     """Extract meaningful tokens from a domain name, skipping known TLDs."""
-    known_tlds = {"com", "net", "org", "io", "co", "uk", "de", "fr", "eu", "app", "dev", "ai", "email", "mail"}
-    parts = domain.lower().split(".")
-    meaningful = [p for p in parts if p and p not in known_tlds]
-    tokens = meaningful[-1:]
-    return [t for t in tokens if t and t not in STOPWORDS]
-
-
-def extract_display_tokens(display_name: str) -> list[str]:
-    """Extract meaningful tokens from a display name."""
-    tokens = re.split(r'[^a-z0-9]+', display_name.lower())
-    return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
-
-
-def extract_subject_tokens(subject: str) -> list[str]:
-    """Extract meaningful tokens from a subject line."""
-    tokens = re.split(r'[^a-z0-9]+', subject.lower())
-    return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
+    parts = [p for p in domain.lower().split(".") if p and p not in _KNOWN_TLDS]
+    return tokenize(parts[-1]) if parts else []
 
 
 def find_strong_signals(
@@ -630,8 +642,8 @@ def classify_message(
     # Step 3: token extraction
     sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
     domain_tokens = extract_domain_tokens(sender_domain)
-    display_tokens = extract_display_tokens(msg.from_display)
-    subject_tokens = extract_subject_tokens(msg.subject) if msg.subject else []
+    display_tokens = tokenize(msg.from_display)
+    subject_tokens = tokenize(msg.subject) if msg.subject else []
     strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
     if tag_tokens:
         anchor_tokens = tag_tokens + [t for t in (strong or domain_tokens) if t not in tag_tokens]

@@ -117,16 +117,16 @@ def test_extract_domain_tokens_subdomain():
     assert ia.extract_domain_tokens("notifications.github.com") == ["github"]
 
 
-def test_extract_display_tokens_basic():
-    assert ia.extract_display_tokens("GitHub Notifications") == ["github"]
+def test_tokenize_basic():
+    assert ia.tokenize("GitHub Notifications") == ["github"]
 
 
-def test_extract_display_tokens_strips_stopwords():
-    assert ia.extract_display_tokens("Hello from Spotify") == ["spotify"]
+def test_tokenize_strips_stopwords():
+    assert ia.tokenize("Hello from Spotify") == ["spotify"]
 
 
-def test_extract_subject_tokens_basic():
-    assert ia.extract_subject_tokens("Your invoice from Stripe") == ["invoice", "stripe"]
+def test_tokenize_subject():
+    assert ia.tokenize("Your invoice from Stripe") == ["invoice", "stripe"]
 
 
 def test_find_strong_signals_overlap():
