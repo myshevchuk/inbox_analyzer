@@ -892,7 +892,7 @@ def interactive_session(
         print(color(f"    {'#':>3}  {'anchor':<40} {'n':>4}  destination / related", "dim"))
         print(color(f"    {'-'*3}  {'-'*40} {'-'*4}  {'-'*30}", "dim"))
         for i, g in enumerate(groups, 1):
-            anchor = f"{g.anchor_type}:{g.group_key}" if g.anchor_type else g.group_key or "?"
+            anchor = g.group_key or "?"
             dest = f"-> {g.suggested_destination}" if g.suggested_destination else ""
             related = f"(related: {', '.join(g.related_group_keys)})" if g.related_group_keys else ""
             suffix = dest or related
@@ -1221,7 +1221,7 @@ Examples:
             uncovered.append(m)
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
-    mydomain = extract_mydomain(config)
+    mydomain = (username.split("@", 1)[1] if username and "@" in username else None) or extract_mydomain(config)
     all_groups = classify_and_group_emails(uncovered, config, mydomain)
 
     # Strip ignored TO patterns from group to_addrs
