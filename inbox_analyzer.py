@@ -82,7 +82,7 @@ class SenderGroup:
     anchor_tokens: list[str] = field(default_factory=list)  # tokens for rule matching
     suggested_destination: Optional[str] = None             # matched folder from sender_index
     related_group_keys: list[str] = field(default_factory=list)  # keys of related groups
-    recipient_category: str = ""  # local part of TO alias on mydomain (if not primary inbox)
+    to_alias: str = ""  # local part of the delivery alias on mydomain (if not primary inbox)
 
 
 @dataclass
@@ -99,8 +99,7 @@ class MessageFeatures:
     anchor_type: str          # "TO" | "LIST" | "FROM"
     anchor_tokens: list[str]
     suggested_destination: Optional[str]
-    debug_recipient_hint: Optional[str]
-    recipient_category: str
+    to_alias: str
     # intermediate tokens (kept for debugging/future use)
     domain_tokens: list[str]
     display_tokens: list[str]
@@ -543,7 +542,7 @@ def find_strong_signals(
 def match_tokens_to_rule(
     tokens: list[str],
     sender_index: dict[str, str],
-    recipient_hint: Optional[str] = None,
+    to_alias: Optional[str] = None,
 ) -> Optional[str]:
     """Return the folder path from sender_index that best matches tokens.
 
@@ -553,7 +552,7 @@ def match_tokens_to_rule(
 
     Tie-breaking (equal scores):
     1. Prefer the folder whose category (everything before the last '.') matches
-       recipient_hint (case-insensitive).
+       to_alias (case-insensitive).
     2. Alphabetical on folder path as final tiebreaker.
     """
     if not tokens:
@@ -574,11 +573,11 @@ def match_tokens_to_rule(
             best_score = score
             best_folder = folder
         elif score == best_score:
-            # Tie-breaking: recipient_hint category match, then alphabetical
+            # Tie-breaking: to_alias category match, then alphabetical
             assert best_folder is not None
             current_category = best_folder.rsplit(".", 1)[0].lower() if "." in best_folder else best_folder.lower()
             candidate_category = folder.rsplit(".", 1)[0].lower() if "." in folder else folder.lower()
-            hint = recipient_hint.lower() if recipient_hint else None
+            hint = to_alias.lower() if to_alias else None
 
             current_hint_match = hint is not None and current_category == hint
             candidate_hint_match = hint is not None and candidate_category == hint
@@ -616,8 +615,7 @@ def classify_message(
     # is handled by taking the first match.
     anchor_type = ""
     group_key = ""
-    recipient_category = ""
-    recipient_hint = None
+    to_alias = ""
     tag_tokens: list[str] = []
     if mydomain:
         mydomain_lower = mydomain.lower()
@@ -630,12 +628,11 @@ def classify_message(
             base_local = parts[0]
             if not anchor_type and len(parts) > 1:
                 anchor_type = "TO"
-                recipient_hint = base_local
                 group_key = "TO:" + "+".join(parts)
                 tag_tokens = list(parts[1:])
-            if not recipient_category and base_local and base_local != primary_lower:
-                recipient_category = base_local
-            if anchor_type and recipient_category:
+            if not to_alias and base_local and base_local != primary_lower:
+                to_alias = base_local
+            if anchor_type and to_alias:
                 break
 
     # Step 2: token extraction
@@ -648,7 +645,7 @@ def classify_message(
     anchor_tokens = tag_tokens + [t for t in base if t not in tag_tokens] if tag_tokens else base
 
     # Step 3: rule matching
-    suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, recipient_hint)
+    suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, to_alias or None)
 
     # Step 4: group key finalization
     if anchor_type == "TO":
@@ -672,8 +669,7 @@ def classify_message(
         anchor_type=anchor_type,
         anchor_tokens=anchor_tokens,
         suggested_destination=suggested_destination,
-        debug_recipient_hint=recipient_hint,
-        recipient_category=recipient_category,
+        to_alias=to_alias,
         domain_tokens=domain_tokens,
         display_tokens=display_tokens,
         subject_tokens=subject_tokens,
@@ -714,7 +710,7 @@ def group_classified_messages(
                 anchor_tokens=feature.anchor_tokens,
                 suggested_destination=feature.suggested_destination,
                 related_group_keys=[],
-                recipient_category=feature.recipient_category,
+                to_alias=feature.to_alias,
             )
 
     # Cross-group linking pass: TO groups <-> FROM groups sharing anchor tokens
@@ -781,7 +777,7 @@ def suggest_folder_name(group: SenderGroup) -> str:
         return f"{prefix.capitalize()}.{service}"
 
     # Category prefix from non-primary TO alias (e.g. forma@domain.com → "Forma")
-    category_prefix = group.recipient_category.capitalize() if group.recipient_category else ""
+    category_prefix = group.to_alias.capitalize() if group.to_alias else ""
 
     addr = group.from_addr
     display = group.from_display
