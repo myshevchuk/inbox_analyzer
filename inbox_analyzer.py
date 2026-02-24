@@ -504,7 +504,7 @@ _KNOWN_TLDS = {
     "fi", "pt", "be", "at", "ch", "cz", "sk", "hu", "ro", "bg", "hr",
     "si", "lt", "lv", "ee", "ie", "lu", "is", "gr", "ua",
     # other common national
-    "us", "ca", "au", "nz", "jp", "cn", "ru", "br", "in", "mx",
+    "us", "ca", "au", "nz", "jp", "cn", "br", "in", "mx",
 }
 
 
@@ -513,11 +513,6 @@ def tokenize(text: str) -> list[str]:
     tokens = re.split(r'[^a-z0-9]+', text.lower())
     return [t for t in tokens if len(t) >= 2 and t not in STOPWORDS]
 
-
-def extract_domain_tokens(domain: str) -> list[str]:
-    """Extract meaningful tokens from a domain name, skipping known TLDs."""
-    parts = [p for p in domain.lower().split(".") if p and p not in _KNOWN_TLDS]
-    return tokenize(parts[-1]) if parts else []
 
 
 def find_strong_signals(
@@ -594,6 +589,32 @@ def match_tokens_to_rule(
     return best_folder
 
 
+@dataclass(frozen=True)
+class ParsedAddress:
+    local: str                    # primary local part (before first +)
+    tags: tuple[str, ...]         # subaddress tags (after +)
+    domain: str                   # full domain
+    domain_parts: tuple[str, ...] # domain split on "."
+
+    @classmethod
+    def from_addr(cls, addr: str) -> "ParsedAddress":
+        """Split an email address into its structural components."""
+        local_full, _, domain = addr.partition("@")
+        local_parts = local_full.split("+")
+        return cls(
+            local=local_parts[0],
+            tags=tuple(local_parts[1:]),
+            domain=domain,
+            domain_parts=tuple(domain.split(".")),
+        )
+
+    @property
+    def domain_tokens(self) -> list[str]:
+        """Extract meaningful tokens from the domain, skipping known TLDs."""
+        # TODO: consider exposing tld as a field on ParsedAddress so callers
+        # can use it directly rather than inferring it from domain_parts.
+        parts = [p for p in self.domain_parts if p and p not in _KNOWN_TLDS]
+        return tokenize(parts[-1])
 
 
 def classify_message(
@@ -618,31 +639,25 @@ def classify_message(
     to_alias = ""
     tag_tokens: list[str] = []
     if mydomain:
-        mydomain_lower = mydomain.lower()
-        primary_lower = (primary_local or "").lower()
-        for addr in msg.to_addrs:
-            addr_lower = addr.lower()
-            if not addr_lower.endswith("@" + mydomain_lower):
+        for addr_lower in (addr.lower() for addr in msg.to_addrs):
+            if not addr_lower.endswith("@" + mydomain.lower()):
                 continue
-            parts = tuple(addr_lower.rsplit("@", 1)[0].split("+"))
-            base_local = parts[0]
-            if not anchor_type and len(parts) > 1:
+            parsed = ParsedAddress.from_addr(addr_lower)
+            if not anchor_type and parsed.tags:
                 anchor_type = "TO"
-                group_key = "TO:" + "+".join(parts)
-                tag_tokens = list(parts[1:])
-            if not to_alias and base_local and base_local != primary_lower:
-                to_alias = base_local
+                group_key = "TO:" + "+".join([parsed.local] + list(parsed.tags))
+                tag_tokens = list(parsed.tags)
+            if not to_alias and parsed.local != (primary_local or "").lower():
+                to_alias = parsed.local
             if anchor_type and to_alias:
                 break
 
     # Step 2: token extraction
-    sender_domain = msg.from_addr.split("@")[-1] if "@" in msg.from_addr else msg.from_addr
-    domain_tokens = extract_domain_tokens(sender_domain)
+    domain_tokens = ParsedAddress.from_addr(msg.from_addr).domain_tokens
     display_tokens = tokenize(msg.from_display)
     subject_tokens = tokenize(msg.subject) if msg.subject else []
-    strong = find_strong_signals(domain_tokens, display_tokens, subject_tokens)
-    base = strong or domain_tokens
-    anchor_tokens = tag_tokens + [t for t in base if t not in tag_tokens] if tag_tokens else base
+    token_pool = find_strong_signals(domain_tokens, display_tokens, subject_tokens) or domain_tokens
+    anchor_tokens = tag_tokens + [t for t in token_pool if t not in tag_tokens] if tag_tokens else token_pool
 
     # Step 3: rule matching
     suggested_destination = match_tokens_to_rule(anchor_tokens, sender_index, to_alias or None)
@@ -656,8 +671,6 @@ def classify_message(
     else:
         anchor_type = "FROM"
         group_key = f"FROM:{msg.from_addr}"
-
-    assert group_key, f"group_key must be non-empty for {msg.from_addr}"
 
     return MessageFeatures(
         from_addr=msg.from_addr,

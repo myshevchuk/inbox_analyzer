@@ -106,15 +106,15 @@ def test_coverage_reason_from_takes_priority():
 
 
 def test_extract_domain_tokens_simple():
-    assert ia.extract_domain_tokens("mail.google.com") == ["google"]
+    assert ia.ParsedAddress.from_addr("x@mail.google.com").domain_tokens == ["google"]
 
 
 def test_extract_domain_tokens_co_uk():
-    assert ia.extract_domain_tokens("news.bbc.co.uk") == ["bbc"]
+    assert ia.ParsedAddress.from_addr("x@news.bbc.co.uk").domain_tokens == ["bbc"]
 
 
 def test_extract_domain_tokens_subdomain():
-    assert ia.extract_domain_tokens("notifications.github.com") == ["github"]
+    assert ia.ParsedAddress.from_addr("x@notifications.github.com").domain_tokens == ["github"]
 
 
 def test_tokenize_basic():
