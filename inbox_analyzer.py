@@ -778,38 +778,12 @@ def classify_and_group_emails(
 # ---------------------------------------------------------------------------
 
 def suggest_folder_name(group: MessageGroup) -> str:
-    """Heuristically suggest a folder name based on the sender info."""
+    """Heuristically suggest a folder name based on anchor_tokens and to_alias."""
     if group.suggested_destination:
         return group.suggested_destination
-
-    # For TO groups with subaddress: category=prefix, service=tag
-    if group.anchor_type == "TO" and "+" in group.group_key:
-        local_part = group.group_key[len("TO:"):]
-        prefix, tag = local_part.split("+", 1)
-        service = tag.capitalize()
-        return f"{prefix.capitalize()}.{service}"
-
-    # Category prefix from non-primary TO alias (e.g. forma@domain.com → "Forma")
-    category_prefix = group.to_alias.capitalize() if group.to_alias else ""
-
-    addr = group.from_addr
-    display = group.from_display
-    if not addr and not display:
-        return f"{category_prefix}.Uncategorized" if category_prefix else "Uncategorized"
-    domain = addr.split("@")[-1] if "@" in addr else addr
-
-    if display:
-        name = display
-        for prefix_str in ["no-reply", "noreply", "notifications", "info", "support", "team"]:
-            name = re.sub(rf"^{prefix_str}\s*[-@]\s*", "", name, flags=re.IGNORECASE)
-        name = name.strip()
-        if name:
-            return f"{category_prefix}.{name}" if category_prefix else name
-
-    parts = domain.split(".")
-    name = parts[-2] if len(parts) >= 2 else domain
-    name = name.capitalize()
-    return f"{category_prefix}.{name}" if category_prefix else name
+    category = group.to_alias.capitalize() if group.to_alias else ""
+    service = " ".join(t.capitalize() for t in group.anchor_tokens) if group.anchor_tokens else "Unknown"
+    return f"{category}.{service}" if category else service
 
 
 def suggest_rule(group: MessageGroup) -> str:

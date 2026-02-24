@@ -392,6 +392,21 @@ def test_suggest_folder_name_uses_suggested_destination():
     assert ia.suggest_folder_name(group) == "Apps.Spotify"
 
 
+def test_suggest_folder_name_no_tld_in_folder_name():
+    """Regression: from_display="Wayfair.de" must not leak TLD into folder name."""
+    group = ia.MessageGroup(
+        from_addr="noreply@wayfair.de",
+        from_display="Wayfair.de",
+        count=1,
+        sample_subjects=[],
+        anchor_type="FROM",
+        group_key="FROM:noreply@wayfair.de",
+        anchor_tokens=["wayfair"],
+        to_alias="online",
+    )
+    assert ia.suggest_folder_name(group) == "Online.Wayfair"
+
+
 def test_suggest_folder_name_fallback_display():
     group = ia.MessageGroup(
         from_addr="noreply@github.com",
@@ -399,8 +414,9 @@ def test_suggest_folder_name_fallback_display():
         count=1,
         sample_subjects=[],
         suggested_destination=None,
+        anchor_tokens=["github"],
     )
-    assert ia.suggest_folder_name(group) == "GitHub"
+    assert ia.suggest_folder_name(group) == "Github"
 
 
 def test_suggest_folder_name_fallback_domain():
@@ -410,6 +426,7 @@ def test_suggest_folder_name_fallback_domain():
         count=1,
         sample_subjects=[],
         suggested_destination=None,
+        anchor_tokens=["service"],
     )
     assert ia.suggest_folder_name(group) == "Service"
 
@@ -472,6 +489,8 @@ def test_suggest_folder_name_to_group_no_destination():
         sample_subjects=[],
         group_key="TO:apps+spotify",
         anchor_type="TO",
+        anchor_tokens=["spotify"],
+        to_alias="apps",
     )
     assert ia.suggest_folder_name(group) == "Apps.Spotify"
 
@@ -590,6 +609,7 @@ def test_suggest_folder_name_with_to_alias():
         anchor_type="FROM",
         group_key="FROM:info@somebank.com",
         to_alias="forma",
+        anchor_tokens=["bank", "name"],
     )
     assert ia.suggest_folder_name(group) == "Forma.Bank Name"
 
@@ -604,6 +624,7 @@ def test_suggest_folder_name_no_category_unchanged():
         anchor_type="FROM",
         group_key="FROM:info@somebank.com",
         to_alias="",
+        anchor_tokens=["bank", "name"],
     )
     assert ia.suggest_folder_name(group) == "Bank Name"
 
