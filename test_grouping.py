@@ -382,7 +382,7 @@ def test_classify_groups_accumulated():
 # ---------------------------------------------------------------------------
 
 def test_suggest_folder_name_uses_suggested_destination():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="noreply@spotify.com",
         from_display="Spotify",
         count=1,
@@ -393,7 +393,7 @@ def test_suggest_folder_name_uses_suggested_destination():
 
 
 def test_suggest_folder_name_fallback_display():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="noreply@github.com",
         from_display="GitHub",
         count=1,
@@ -404,7 +404,7 @@ def test_suggest_folder_name_fallback_display():
 
 
 def test_suggest_folder_name_fallback_domain():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="noreply@service.com",
         from_display="",
         count=1,
@@ -419,7 +419,7 @@ def test_suggest_folder_name_fallback_domain():
 # ---------------------------------------------------------------------------
 
 def test_suggest_rule_uses_suggested_destination():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="noreply@spotify.com",
         from_display="Spotify",
         count=1,
@@ -432,7 +432,7 @@ def test_suggest_rule_uses_suggested_destination():
 
 
 def test_suggest_rule_to_anchor_type():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="updates@spotify.com",
         from_display="Spotify",
         count=1,
@@ -446,7 +446,7 @@ def test_suggest_rule_to_anchor_type():
 
 
 def test_suggest_rule_multi_sender():
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="a@x.com",
         from_display="X Service",
         count=2,
@@ -465,7 +465,7 @@ def test_suggest_rule_multi_sender():
 
 def test_suggest_folder_name_to_group_no_destination():
     """TO group without suggested_destination uses prefix.tag from subaddress."""
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="noreply@unrelated.com",
         from_display="Some Sender",
         count=1,
@@ -582,7 +582,7 @@ def test_to_alias_from_subaddress_prefix():
 
 def test_suggest_folder_name_with_to_alias():
     """FROM group with to_alias="forma", from_display="Bank Name" → returns "Forma.Bank Name"."""
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="info@somebank.com",
         from_display="Bank Name",
         count=1,
@@ -596,7 +596,7 @@ def test_suggest_folder_name_with_to_alias():
 
 def test_suggest_folder_name_no_category_unchanged():
     """FROM group with to_alias="", from_display="Bank Name" → returns "Bank Name" unchanged."""
-    group = ia.SenderGroup(
+    group = ia.MessageGroup(
         from_addr="info@somebank.com",
         from_display="Bank Name",
         count=1,

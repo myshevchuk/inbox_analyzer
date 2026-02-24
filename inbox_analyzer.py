@@ -68,7 +68,7 @@ class MessageInfo:
 
 
 @dataclass
-class SenderGroup:
+class MessageGroup:
     """A cluster of messages sharing the same mailing list or sender address."""
     from_addr: str          # representative sender (most frequent, or only one)
     from_display: str       # display name of representative sender
@@ -88,10 +88,10 @@ class SenderGroup:
 @dataclass
 class MessageFeatures:
     """Per-email classification result from classify_message."""
-    # raw (echoed from MessageInfo for SenderGroup construction)
+    # raw (echoed from MessageInfo for MessageGroup construction)
     from_addr: str
     from_display: str
-    list_id: Optional[str]    # raw value (not normalized) — needed for SenderGroup display
+    list_id: Optional[str]    # raw value (not normalized) — needed for MessageGroup display
     subject: str
     to_addrs: list[str]       # list[str] matching MessageInfo.to_addrs; set conversion happens in group_classified_messages
     # classification
@@ -194,7 +194,7 @@ def _domains_related(d1: str, d2: str) -> bool:
 
 
 def find_related_rules(
-    group: SenderGroup,
+    group: MessageGroup,
     rule_index: list[tuple[str, set[str], set[str]]],
 ) -> list[str]:
     """
@@ -678,14 +678,14 @@ def classify_message(
 
 def group_classified_messages(
     features: list[MessageFeatures],
-) -> list[SenderGroup]:
-    """Group a list of MessageFeatures into SenderGroup objects with cross-links.
+) -> list[MessageGroup]:
+    """Group a list of MessageFeatures into MessageGroup objects with cross-links.
 
     Accumulates features by group_key (first-message-wins for anchor fields),
     runs a cross-group linking pass between TO and FROM groups sharing anchor
     tokens, and returns groups sorted descending by count.
     """
-    groups: dict[str, SenderGroup] = {}
+    groups: dict[str, MessageGroup] = {}
 
     for feature in features:
         group_key = feature.group_key
@@ -697,7 +697,7 @@ def group_classified_messages(
             if len(existing.sample_subjects) < 5 and feature.subject not in existing.sample_subjects:
                 existing.sample_subjects.append(feature.subject)
         else:
-            groups[group_key] = SenderGroup(
+            groups[group_key] = MessageGroup(
                 from_addr=feature.from_addr,
                 from_display=feature.from_display,
                 count=1,
@@ -737,9 +737,9 @@ def classify_and_group_emails(
     config: dict,
     mydomain: Optional[str],
     primary_local: Optional[str] = None,
-) -> list[SenderGroup]:
+) -> list[MessageGroup]:
     """
-    Classify and group uncovered emails into SenderGroup objects with enriched
+    Classify and group uncovered emails into MessageGroup objects with enriched
     metadata: group key, anchor type, anchor tokens, suggested destination, and
     cross-group relationships.
 
@@ -764,7 +764,7 @@ def classify_and_group_emails(
 # Rule suggestion logic
 # ---------------------------------------------------------------------------
 
-def suggest_folder_name(group: SenderGroup) -> str:
+def suggest_folder_name(group: MessageGroup) -> str:
     """Heuristically suggest a folder name based on the sender info."""
     if group.suggested_destination:
         return group.suggested_destination
@@ -799,7 +799,7 @@ def suggest_folder_name(group: SenderGroup) -> str:
     return f"{category_prefix}.{name}" if category_prefix else name
 
 
-def suggest_rule(group: SenderGroup) -> str:
+def suggest_rule(group: MessageGroup) -> str:
     """Generate a YAML rule suggestion for a sender group."""
     folder = suggest_folder_name(group)
 
@@ -847,7 +847,7 @@ def color(text: str, *styles: str) -> str:
 
 
 def interactive_session(
-    groups: list[SenderGroup],
+    groups: list[MessageGroup],
     existing_folders: set[str],
     rule_index: list[tuple[str, set[str], set[str]]],
     output_file: Optional[str] = None,
@@ -866,8 +866,8 @@ def interactive_session(
     total = len(groups)
     merged_keys: set[str] = set()
 
-    # Build a lookup map from group_key to SenderGroup for merge support
-    groups_by_key: dict[str, SenderGroup] = {g.group_key: g for g in groups if g.group_key}
+    # Build a lookup map from group_key to MessageGroup for merge support
+    groups_by_key: dict[str, MessageGroup] = {g.group_key: g for g in groups if g.group_key}
 
     print(f"\n{'=' * 60}")
     print(color(f"  Found {total} uncovered sender groups", "bold"))
