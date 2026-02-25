@@ -21,7 +21,6 @@ import getpass
 import imaplib
 import re
 import sys
-from collections import defaultdict
 from dataclasses import dataclass, field, fields as dataclass_fields
 from pathlib import Path
 from typing import Optional
@@ -793,7 +792,7 @@ def suggest_rule(group: MessageGroup) -> str:
     # Determine the best matching strategy
     lines = []
     lines.append(f"  - move_to: {folder}")
-    lines.append(f"    condition:")
+    lines.append("    condition:")
 
     # If there's a subaddress in TO, prefer that
     subaddress_to = next((to for to in sorted(group.to_addrs) if "+" in to), None)
@@ -801,7 +800,7 @@ def suggest_rule(group: MessageGroup) -> str:
     if subaddress_to:
         lines.append(f"      TO: {subaddress_to}")
     elif len(group.from_addrs) > 1:
-        lines.append(f"      ANY:")
+        lines.append("      ANY:")
         for addr in sorted(group.from_addrs):
             lines.append(f"        - FROM: {addr}")
     else:
@@ -895,7 +894,7 @@ def interactive_session(
                 relevant_to = [a for a in group.to_addrs if "+" in a]
                 if relevant_to:
                     print(f"  Subaddressed To: {', '.join(relevant_to)}")
-            print(f"  Sample subjects:")
+            print("  Sample subjects:")
             for subj in group.sample_subjects[:3]:
                 print(f"    • {subj[:80]}")
 
@@ -982,8 +981,8 @@ def interactive_session(
 
                     merged_lines = [
                         f"  - move_to: {folder}",
-                        f"    condition:",
-                        f"      ANY:",
+                        "    condition:",
+                        "      ANY:",
                     ]
                     for item in any_items:
                         merged_lines.append(f"        - {item.strip()}")
@@ -1001,7 +1000,7 @@ def interactive_session(
                     print(f"  {color('— Skipped', 'dim')}")
                     break
                 elif choice in ("q", "quit"):
-                    print(f"\n  Stopping early.")
+                    print("\n  Stopping early.")
                     _output_rules(accepted_rules, output_file)
                     return
                 elif choice.isdigit() and 1 <= int(choice) <= len(related):
@@ -1020,7 +1019,7 @@ def interactive_session(
             print()
 
     except KeyboardInterrupt:
-        print(f"\n\n  Interrupted.")
+        print("\n\n  Interrupted.")
 
     _output_rules(accepted_rules, output_file)
 
@@ -1055,7 +1054,7 @@ def _output_rules(rules: list[str], output_file: Optional[str]):
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Analyze IMAP Inbox and suggest mmuxer rules for uncovered messages.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1129,18 +1128,10 @@ Examples:
         "--output",
         help="Write accepted rules to this file instead of stdout",
     )
+    return parser.parse_args()
 
-    args = parser.parse_args()
 
-    # Load mmuxer config
-    config_path = Path(args.config).expanduser()
-    if not config_path.exists():
-        print(f"Config file not found: {config_path}", file=sys.stderr)
-        sys.exit(1)
-
-    config = load_mmuxer_config(str(config_path))
-
-    # Resolve connection settings
+def resolve_credentials(args: argparse.Namespace, config: dict, config_path: Path) -> tuple[str, str, str, int]:
     settings = config.get("settings", {})
 
     # Load env file (default: .env next to the config file)
@@ -1149,8 +1140,9 @@ Examples:
 
     server = args.server or env.get("server") or settings.get("server")
     username = args.username or env.get("username") or settings.get("username")
-    if args.port == 993 and "port" in env:
-        args.port = int(env["port"])
+    port = args.port
+    if port == 993 and "port" in env:
+        port = int(env["port"])
 
     if not server:
         server = input("IMAP server: ").strip()
@@ -1161,7 +1153,53 @@ Examples:
     if not password:
         password = getpass.getpass("IMAP password: ")
 
-    # Extract existing rule patterns
+    return server, username, password, port
+
+
+def connect_and_fetch(server: str, username: str, password: str, port: int, folder: str, limit: int) -> list:
+    print(f"\nConnecting to {server}...")
+    try:
+        conn = connect_imap(server, username, password, port)
+    except Exception as e:
+        print(f"Failed to connect: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        messages = fetch_inbox_headers(conn, folder=folder, limit=limit)
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+    return messages
+
+
+def filter_uncovered(messages: list, covered: dict, debug: bool) -> list:
+    uncovered = []
+    for m in messages:
+        reason = _coverage_reason(m, covered)
+        if reason:
+            if debug:
+                print(f"  [debug] covered:   {m.from_addr} | {reason}")
+        else:
+            if debug:
+                print(f"  [debug] uncovered: {m.from_addr}")
+            uncovered.append(m)
+    return uncovered
+
+
+def main():
+    args = parse_args()
+
+    config_path = Path(args.config).expanduser()
+    if not config_path.exists():
+        print(f"Config file not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+    config = load_mmuxer_config(str(config_path))
+
+    server, username, password, port = resolve_credentials(args, config, config_path)
+
     ignore_folders = set(args.ignore_folders or []) | {args.folder}
     covered = extract_covered_patterns(config, ignore_folders)
     ignore_to_patterns = get_ignored_to_patterns(config, ignore_folders)
@@ -1169,53 +1207,22 @@ Examples:
     print(f"Loaded {sum(len(v) for v in covered.values())} patterns from existing rules.")
     print(f"Existing folders: {len(existing_folders)}")
 
-    # Connect and fetch
-    print(f"\nConnecting to {server}...")
-    try:
-        conn = connect_imap(server, username, password, args.port)
-    except Exception as e:
-        print(f"Failed to connect: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        messages = fetch_inbox_headers(conn, folder=args.folder, limit=args.limit)
-    finally:
-        try:
-            conn.logout()
-        except Exception:
-            pass
-
+    messages = connect_and_fetch(server, username, password, port, args.folder, args.limit)
     if not messages:
         print("No messages to analyze.")
         sys.exit(0)
 
-    # Analyze
-    # Filter uncovered messages
-    uncovered = []
-    for m in messages:
-        reason = _coverage_reason(m, covered)
-        if reason:
-            if args.debug:
-                print(f"  [debug] covered:   {m.from_addr} | {reason}")
-        else:
-            if args.debug:
-                print(f"  [debug] uncovered: {m.from_addr}")
-            uncovered.append(m)
+    uncovered = filter_uncovered(messages, covered, args.debug)
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
     mydomain = (username.split("@", 1)[1] if username and "@" in username else None) or extract_mydomain(config)
     primary_local = username.split("@")[0].lower() if username and "@" in username else None
     all_groups = classify_and_group_emails(uncovered, config, mydomain, primary_local=primary_local)
 
-    # Strip ignored TO patterns from group to_addrs
     if ignore_to_patterns:
         for g in all_groups:
-            g.to_addrs = {
-                t for t in g.to_addrs
-                if not any(pat in t.lower() for pat in ignore_to_patterns)
-            }
+            g.to_addrs = {t for t in g.to_addrs if not any(pat in t.lower() for pat in ignore_to_patterns)}
 
-    # Filter by minimum count
     groups = [g for g in all_groups if g.count >= args.min_count]
     if not groups:
         print(f"\nNo sender groups with {args.min_count}+ messages found.")
@@ -1224,7 +1231,6 @@ Examples:
             print(f"({len(one_offs)} senders with only 1 message — use --min-count 1 to include them)")
         sys.exit(0)
 
-    # Interactive rule suggestion
     rule_index = build_rule_index(config)
     interactive_session(groups, existing_folders, rule_index, output_file=args.output, debug=args.debug)
 
