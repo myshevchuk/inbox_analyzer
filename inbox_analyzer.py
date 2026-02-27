@@ -55,6 +55,16 @@ except ImportError:
 # Data structures
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class Credentials:
+    server: str
+    username: str
+    password: str
+    port: int
+    mydomain: Optional[str]
+    primary_local: Optional[str]
+
+
 @dataclass
 class MessageInfo:
     """Minimal header info extracted from a single message."""
@@ -247,21 +257,6 @@ def extract_existing_folders(config: dict) -> set[str]:
             folders.add(folder)
     return folders
 
-
-def extract_mydomain(config: dict) -> Optional[str]:
-    """Extract the domain part from the username in config settings.
-
-    Returns the domain (part after '@') from config['settings']['username'],
-    or None if the settings key is missing, the username key is missing, or
-    the username contains no '@'.
-    """
-    settings = config.get("settings")
-    if not settings:
-        return None
-    username = settings.get("username")
-    if not username or "@" not in username:
-        return None
-    return username.split("@", 1)[1]
 
 
 def build_sender_index(config: dict) -> dict[str, str]:
@@ -1131,7 +1126,7 @@ Examples:
     return parser.parse_args()
 
 
-def resolve_credentials(args: argparse.Namespace, config: dict, config_path: Path) -> tuple[str, str, str, int]:
+def resolve_credentials(args: argparse.Namespace, config: dict, config_path: Path) -> Credentials:
     settings = config.get("settings", {})
 
     # Load env file (default: .env next to the config file)
@@ -1153,7 +1148,10 @@ def resolve_credentials(args: argparse.Namespace, config: dict, config_path: Pat
     if not password:
         password = getpass.getpass("IMAP password: ")
 
-    return server, username, password, port
+    parsed = ParsedAddress.from_addr(username) if "@" in username else None
+    return Credentials(server, username, password, port,
+                       mydomain=parsed.domain if parsed else None,
+                       primary_local=parsed.local.lower() if parsed else None)
 
 
 def connect_and_fetch(server: str, username: str, password: str, port: int, folder: str, limit: int) -> list:
@@ -1198,7 +1196,7 @@ def main():
         sys.exit(1)
     config = load_mmuxer_config(str(config_path))
 
-    server, username, password, port = resolve_credentials(args, config, config_path)
+    creds = resolve_credentials(args, config, config_path)
 
     ignore_folders = set(args.ignore_folders or []) | {args.folder}
     covered = extract_covered_patterns(config, ignore_folders)
@@ -1207,7 +1205,7 @@ def main():
     print(f"Loaded {sum(len(v) for v in covered.values())} patterns from existing rules.")
     print(f"Existing folders: {len(existing_folders)}")
 
-    messages = connect_and_fetch(server, username, password, port, args.folder, args.limit)
+    messages = connect_and_fetch(creds.server, creds.username, creds.password, creds.port, args.folder, args.limit)
     if not messages:
         print("No messages to analyze.")
         sys.exit(0)
@@ -1215,9 +1213,7 @@ def main():
     uncovered = filter_uncovered(messages, covered, args.debug)
     print(f"\n{len(uncovered)} of {len(messages)} messages are not covered by existing rules.")
 
-    mydomain = (username.split("@", 1)[1] if username and "@" in username else None) or extract_mydomain(config)
-    primary_local = username.split("@")[0].lower() if username and "@" in username else None
-    all_groups = classify_and_group_emails(uncovered, config, mydomain, primary_local=primary_local)
+    all_groups = classify_and_group_emails(uncovered, config, creds.mydomain, primary_local=creds.primary_local)
 
     if ignore_to_patterns:
         for g in all_groups:

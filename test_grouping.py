@@ -145,23 +145,6 @@ def test_stopwords_contains_expected():
 
 
 # ---------------------------------------------------------------------------
-# extract_mydomain tests
-# ---------------------------------------------------------------------------
-
-def test_extract_mydomain_basic():
-    config = make_config(username="user@mydomain.com")
-    assert ia.extract_mydomain(config) == "mydomain.com"
-
-
-def test_extract_mydomain_no_at():
-    config = make_config(username="userwithoutatsign")
-    assert ia.extract_mydomain(config) is None
-
-
-def test_extract_mydomain_missing_settings():
-    config = {"rules": []}
-    assert ia.extract_mydomain(config) is None
-
 
 # ---------------------------------------------------------------------------
 # build_sender_index tests
