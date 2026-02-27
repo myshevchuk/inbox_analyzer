@@ -1217,7 +1217,8 @@ def main():
 
     if ignore_to_patterns:
         for g in all_groups:
-            g.to_addrs = {t for t in g.to_addrs if not any(pat in t.lower() for pat in ignore_to_patterns)}
+            if g.anchor_type != "TO":  # TO-anchor groups need their subaddress intact for rule generation
+                g.to_addrs = {t for t in g.to_addrs if not any(pat in t.lower() for pat in ignore_to_patterns)}
 
     groups = [g for g in all_groups if g.count >= args.min_count]
     if not groups:
